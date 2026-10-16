@@ -35,7 +35,25 @@
   .row label { min-width: 110px; color: var(--l); }
   .muted { color: var(--m); } .hi { color: var(--y); }
   .bar { height: 8px; background: var(--d); border: 1px solid var(--m); margin: 6px 0; } .bar > div { height: 100%; background: var(--y); width: 0; }
-  @media (max-width: 860px) { #app { grid-template-columns: 1fr; grid-template-rows: auto auto auto; height: auto; } #stage { min-height: 56vw; } #side { max-height: 60vh; } }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .tabs button { padding: 3px 7px; font-size: 11px; }
+  .tac-grid { display: grid; grid-template-columns: 200px 1fr; gap: 10px; min-width: min(720px, 92vw); }
+  .pitch-mini { position: relative; width: 180px; height: 260px; background: linear-gradient(90deg, #277a32 0 12px, #2f8a3a 12px 24px); border: 14px solid #1b2a4a; box-shadow: inset 0 0 0 2px #f2f0e6; image-rendering: pixelated; }
+  .pitch-mini .slot { position: absolute; transform: translate(-50%, -50%); width: 34px; text-align: center; cursor: pointer; border: 2px solid transparent; padding: 1px; }
+  .pitch-mini .slot.on { border-color: var(--y); background: rgba(11,11,20,.55); }
+  .pitch-mini .slot .n { display: block; font-weight: bold; color: var(--y); }
+  .pitch-mini .slot .r { display: block; font-size: 10px; color: var(--w); }
+  .pitch-mini .slot .d { display: block; font-size: 9px; color: var(--m); }
+  .instr label { min-width: 150px; }
+  .instr select, .instr input[type="range"] { flex: 1; min-width: 120px; }
+  .chk { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+  .chk input { accent-color: var(--y); }
+  #tacWin .wb { max-height: min(78vh, 640px); overflow: auto; }
+  @media (max-width: 860px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: auto auto auto; height: auto; }
+    #stage { min-height: 56vw; } #side { max-height: 60vh; }
+    .tac-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -55,6 +73,7 @@
     <button data-a="sp" data-v="2">2x</button><button data-a="sp" data-v="4">4x</button>
     <div class="sep"></div>
     <button data-a="restart">Restart</button><button data-a="menu">Menu</button>
+    <button data-a="tactics" id="bTac">Tactics</button>
     <button data-a="mute" id="bMute">SFX on</button>
     <div class="sep"></div>
     <span class="muted">Debug:</span>
@@ -150,42 +169,362 @@ const ROLE_TPL = {
   att: { pace:14, stamina:12, strength:12, passing:11, vision:11, dribbling:14, finishing:14, heading:12, tackling:6, positioning:12,
          anticipation:13, composure:12, decisions:11, teamwork:11, discipline:11, reflexes:3, handling:3, distribution:5 },
 };
-// Game-model "style" knobs (Phase 3 turns these into the full principle tree)
+
+/* ---------- FM-style principle tree (roles / duties / instructions) ---------- */
+const MENTALITY = {
+  'very-defensive': { lineHeight:-0.18, width:-0.14, risk:-0.18, pressIntensity:-0.18, tempo:-0.12, directness:0.08, compact:0.10 },
+  'defensive':      { lineHeight:-0.10, width:-0.08, risk:-0.10, pressIntensity:-0.10, tempo:-0.06, directness:0.04, compact:0.05 },
+  'balanced':       { lineHeight:0, width:0, risk:0, pressIntensity:0, tempo:0, directness:0, compact:0 },
+  'positive':       { lineHeight:0.08, width:0.06, risk:0.08, pressIntensity:0.06, tempo:0.06, directness:-0.02, compact:-0.03 },
+  'attacking':      { lineHeight:0.14, width:0.10, risk:0.12, pressIntensity:0.10, tempo:0.10, directness:-0.03, compact:-0.05 },
+  'very-attacking': { lineHeight:0.22, width:0.16, risk:0.20, pressIntensity:0.16, tempo:0.16, directness:-0.05, compact:-0.08 },
+};
+const SCALE = { 'much-lower':0.15, 'lower':0.35, 'slightly-lower':0.45, 'standard':0.55, 'slightly-higher':0.65, 'higher':0.78, 'much-higher':0.92 };
+const WIDTH_S = { 'very-narrow':0.25, 'narrow':0.4, 'fairly-narrow':0.5, 'standard':0.6, 'fairly-wide':0.75, 'wide':0.88, 'very-wide':1 };
+const DIRECT_S = { 'much-shorter':0.12, 'shorter':0.28, 'slightly-shorter':0.4, 'standard':0.5, 'slightly-more-direct':0.62, 'more-direct':0.78, 'much-more-direct':0.92 };
+const PRESS_S = { 'much-less-often':0.15, 'less-often':0.35, 'slightly-less-often':0.45, 'standard':0.55, 'slightly-more-often':0.68, 'more-often':0.82, 'much-more-often':0.95 };
+const ENGAGE = { 'much-deeper':0.15, 'deeper':0.3, 'slightly-deeper':0.4, 'standard':0.55, 'slightly-higher':0.68, 'higher':0.82, 'much-higher':0.95 };
+const LINE_H = { 'much-deeper':0.12, 'deeper':0.28, 'slightly-deeper':0.4, 'standard':0.52, 'slightly-higher':0.65, 'higher':0.8, 'much-higher':0.92 };
+const COMPACT_S = { 'much-more-expressive':0.25, 'more-expressive':0.4, 'standard':0.6, 'more-structured':0.78, 'much-more-structured':0.9,
+  'very-fluid':0.3, 'fluid':0.45, 'fairly-fluid':0.55, 'fairly-structured':0.7, 'structured':0.82, 'very-structured':0.92,
+  'very-compact':0.92, 'compact':0.78, 'fairly-compact':0.65, 'standard':0.55 };
+
+const ROLES = {
+  gk:  { name:'Goalkeeper', short:'GK', line:0, duties:['defend'], attr:'gk' },
+  sk:  { name:'Sweeper Keeper', short:'SK', line:0, duties:['support','attack'], attr:'gk' },
+  cd:  { name:'Central Defender', short:'CD', line:1, duties:['defend','stopper','cover'], attr:'def' },
+  bpd: { name:'Ball Playing Defender', short:'BPD', line:1, duties:['defend','stopper','cover'], attr:'def' },
+  fb:  { name:'Full Back', short:'FB', line:1, duties:['defend','support','attack'], attr:'def', wide:1 },
+  wb:  { name:'Wing Back', short:'WB', line:1, duties:['defend','support','attack'], attr:'def', wide:1 },
+  iwb: { name:'Inverted Wing Back', short:'IWB', line:1, duties:['defend','support','attack'], attr:'def', wide:1 },
+  dm:  { name:'Defensive Midfielder', short:'DM', line:2, duties:['defend','support'], attr:'mid', deep:1 },
+  a:   { name:'Anchor', short:'A', line:2, duties:['defend'], attr:'mid', deep:1 },
+  dlp: { name:'Deep Lying Playmaker', short:'DLP', line:2, duties:['defend','support'], attr:'mid', deep:1 },
+  bwm: { name:'Ball Winning Midfielder', short:'BWM', line:2, duties:['defend','support'], attr:'mid', deep:1 },
+  cm:  { name:'Central Midfielder', short:'CM', line:2, duties:['defend','support','attack'], attr:'mid' },
+  b2b: { name:'Box to Box', short:'B2B', line:2, duties:['support'], attr:'mid' },
+  mez: { name:'Mezzala', short:'MEZ', line:2, duties:['support','attack'], attr:'mid' },
+  car: { name:'Carrilero', short:'CAR', line:2, duties:['support'], attr:'mid' },
+  ap:  { name:'Advanced Playmaker', short:'AP', line:2, duties:['support','attack'], attr:'mid', adv:1 },
+  am:  { name:'Attacking Midfielder', short:'AM', line:3, duties:['support','attack'], attr:'mid', adv:1 },
+  ss:  { name:'Shadow Striker', short:'SS', line:3, duties:['attack'], attr:'att', adv:1 },
+  w:   { name:'Winger', short:'W', line:3, duties:['support','attack'], attr:'att', wide:1 },
+  iw:  { name:'Inside Forward', short:'IF', line:3, duties:['support','attack'], attr:'att', wide:1 },
+  wm:  { name:'Wide Midfielder', short:'WM', line:2, duties:['defend','support','attack'], attr:'mid', wide:1 },
+  af:  { name:'Advanced Forward', short:'AF', line:3, duties:['attack'], attr:'att' },
+  p:   { name:'Poacher', short:'P', line:3, duties:['attack'], attr:'att' },
+  tf:  { name:'Target Forward', short:'TF', line:3, duties:['support','attack'], attr:'att' },
+  dlf: { name:'Deep Lying Forward', short:'DLF', line:3, duties:['support','attack'], attr:'att' },
+  pf:  { name:'Pressing Forward', short:'PF', line:3, duties:['defend','support','attack'], attr:'att' },
+  cf:  { name:'Complete Forward', short:'CF', line:3, duties:['support','attack'], attr:'att' },
+};
+function rolesForSlot(slot) {
+  const line = slot.line, wide = Math.abs((slot.y || 34) - 34) > 14;
+  return Object.keys(ROLES).filter(id => {
+    const r = ROLES[id];
+    if (line === 0) return r.line === 0;
+    if (r.line === 0) return false;
+    if (Math.abs(r.line - line) > 1) return false;
+    if (line === 1 && r.line >= 3) return false;
+    if (line === 3 && r.line <= 1) return false;
+    if (wide && line >= 1 && !r.wide && !['cm', 'ap', 'am', 'dm', 'dlp', 'bwm', 'b2b', 'mez', 'car', 'af', 'p', 'tf', 'dlf', 'pf', 'cf', 'ss', 'cd', 'bpd', 'a'].includes(id)) return false;
+    if (!wide && r.wide && line === 1 && !['fb', 'wb', 'iwb'].includes(id) && Math.abs((slot.y || 34) - 34) < 10) return id === 'cd' || id === 'bpd';
+    return true;
+  });
+}
+
+// Behaviour knobs per role+duty — offsets in metres (attacking x forward+, y toward touchline if wide)
+function roleBehaviour(roleId, duty, side) {
+  const wideSign = side === 'L' ? -1 : side === 'R' ? 1 : 0;
+  const dAtk = duty === 'attack' ? 1 : duty === 'support' ? 0.45 : duty === 'stopper' ? 0.2 : duty === 'cover' ? -0.15 : 0;
+  const dDef = duty === 'defend' || duty === 'cover' ? 1 : duty === 'stopper' ? 0.7 : duty === 'support' ? 0.35 : 0.15;
+  const base = {
+    dxIn: 0, dyIn: 0, dxOut: 0, dyOut: 0,
+    shoot: 0, dribble: 0, cross: 0, through: 0, hold: 0, progressive: 0, recycle: 0,
+    press: 0.5, mark: 0.5, creative: 0.4, stayWide: 0, cutInside: 0, holdUp: 0,
+    shootMore: 0, roam: 0, getForward: dAtk, sit: dDef, gkSweep: 0,
+  };
+  const R = {
+    gk:  { dxIn:-2, hold:0.02, recycle:0.01, press:0.05, gkSweep:0 },
+    sk:  { dxIn: duty === 'attack' ? 4 : 2, recycle:0.008, progressive:0.006, press:0.2, gkSweep: duty === 'attack' ? 1 : 0.65 },
+    cd:  { dxIn: duty === 'stopper' ? 2 : duty === 'cover' ? -2 : 0, hold:0.01, recycle:0.006, press: duty === 'stopper' ? 0.75 : 0.35, mark:0.8 },
+    bpd: { dxIn: duty === 'stopper' ? 1.5 : duty === 'cover' ? -1.5 : 0, progressive:0.01, through:0.008, recycle:0.01, creative:0.55, press:0.4, mark:0.7 },
+    fb:  { dxIn: dAtk * 8, dyIn: wideSign * (2 + dAtk * 4), dxOut: dAtk * 2, dyOut: wideSign * 3, cross:0.01 + dAtk * 0.01, press:0.55 + dAtk * 0.15, stayWide:0.7 },
+    wb:  { dxIn: 6 + dAtk * 10, dyIn: wideSign * (4 + dAtk * 5), dxOut: 3, dyOut: wideSign * 4, cross:0.014 + dAtk * 0.012, dribble:0.006, press:0.7, stayWide:0.9, getForward:0.9 },
+    iwb: { dxIn: 4 + dAtk * 6, dyIn: wideSign * (duty === 'attack' ? -2 : 1), cutInside:0.85, progressive:0.01, through:0.008, recycle:0.008, press:0.55, stayWide:0.15 },
+    dm:  { dxIn: -3 + dAtk * 3, recycle:0.012, progressive:0.004, press:0.55 + (duty === 'defend' ? 0.1 : 0), mark:0.75, sit:0.85 },
+    a:   { dxIn:-5, recycle:0.01, press:0.35, mark:0.9, sit:1, hold:0.008 },
+    dlp: { dxIn:-2 + dAtk * 2, through:0.014, progressive:0.012, recycle:0.014, creative:0.85, press:0.35, hold:0.01 },
+    bwm: { dxIn: dAtk * 2, press:0.95, mark:0.85, dribble:-0.004, progressive:0.004, getForward:0.4 },
+    cm:  { dxIn: dAtk * 6, progressive:0.008, recycle:0.008, through:0.006, press:0.55 + dAtk * 0.15, shoot: dAtk * 0.006 },
+    b2b: { dxIn: 5, dyIn:0, progressive:0.01, shoot:0.008, dribble:0.006, press:0.75, getForward:0.85, roam:0.5 },
+    mez: { dxIn: 6 + dAtk * 4, dyIn: wideSign * (duty === 'attack' ? -3 : -1), cutInside:0.6, through:0.01, shoot:0.01, dribble:0.008, creative:0.7, roam:0.55 },
+    car: { dxIn: 2, dyIn: wideSign * 4, recycle:0.012, progressive:0.006, press:0.5, mark:0.55, stayWide:0.35 },
+    ap:  { dxIn: 8 + dAtk * 4, through:0.016, progressive:0.01, creative:1, shoot:0.008, hold:0.006, press:0.35, roam:0.4 },
+    am:  { dxIn: 10 + dAtk * 3, through:0.012, shoot:0.012, dribble:0.01, creative:0.8, press:0.45, getForward:0.9 },
+    ss:  { dxIn: 14, shoot:0.018, through:0.006, dribble:0.01, press:0.55, getForward:1 },
+    w:   { dxIn: 8 + dAtk * 6, dyIn: wideSign * (6 + dAtk * 3), cross:0.018 + dAtk * 0.01, dribble:0.012, stayWide:1, press:0.55, getForward:0.85 },
+    iw:  { dxIn: 10 + dAtk * 5, dyIn: wideSign * (2 - dAtk * 3), cutInside:1, shoot:0.014 + dAtk * 0.01, dribble:0.014, through:0.008, stayWide:0.2, getForward:0.95 },
+    wm:  { dxIn: dAtk * 6, dyIn: wideSign * 5, cross:0.01, recycle:0.008, press:0.55 + dDef * 0.15, stayWide:0.75 },
+    af:  { dxIn: 14, shoot:0.016, dribble:0.01, press:0.55, getForward:1 },
+    p:   { dxIn: 16, shoot:0.022, hold:-0.01, press:0.25, getForward:1, roam:0.2 },
+    tf:  { dxIn: 10 + dAtk * 2, holdUp:1, hold:0.014, shoot:0.008, press:0.4, getForward:0.7 },
+    dlf: { dxIn: 6 + dAtk * 2, holdUp:0.7, through:0.012, recycle:0.01, creative:0.65, shoot:0.008, press:0.4 },
+    pf:  { dxIn: 8 + dAtk * 4, press:1, mark:0.6, shoot:0.01, dribble:0.006, getForward:0.75 },
+    cf:  { dxIn: 12, shoot:0.014, holdUp:0.5, dribble:0.01, through:0.008, press:0.55, getForward:0.9, roam:0.35 },
+  };
+  const o = Object.assign(base, R[roleId] || {});
+  // Player-instruction-style duty scaling
+  o.dxIn *= 0.85 + dAtk * 0.35; o.press = clamp(o.press, 0, 1); o.mark = clamp(o.mark, 0, 1);
+  return o;
+}
+
+function defaultPI() {
+  return { shootMore:false, shootLess:false, holdUp:false, roam:false, stayWider:false, sitNarrower:takeFalse(),
+    dribbleMore:false, dribbleLess:false, takeMoreRisks:false, closeDownMore:false, markTighter:false, crossMore:false };
+}
+function takeFalse() { return false; }
+
+function emptyInstr() {
+  return {
+    mentality: 'balanced',
+    inPoss: {
+      tempo: 'standard', width: 'standard', passingDirectness: 'standard',
+      playOutOfDefence: false, workBallIntoBox: false, beMoreExpressive: false, shootOnSight: false,
+      overlap: 'sometimes', underlap: 'rarely', focusPlay: 'mixed',
+    },
+    inTrans: { counterPress: false, counter: true, distribute: 'mixed' },
+    outPoss: {
+      defensiveLine: 'standard', lineOfEngagement: 'standard', width: 'standard',
+      triggerPress: 'standard', preventShortGK: false, getStuckIn: false, stepUpMore: false,
+    },
+  };
+}
+
+// slot: {line,y,num,dx?,role,duty,side?}
+const FORMATION_SHAPES = {
+  5: {
+    '2-1-1': [
+      {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+      {line:1,y:22,num:4,role:'cd',duty:'defend',side:'L'}, {line:1,y:46,num:5,role:'cd',duty:'cover',side:'R'},
+      {line:2,y:34,num:8,role:'cm',duty:'support',side:'C'}, {line:3,y:34,num:9,role:'af',duty:'attack',side:'C'}],
+    '1-2-1': [
+      {line:0,y:34,num:1,role:'sk',duty:'support',side:'C'},
+      {line:1,y:34,num:5,role:'cd',duty:'defend',side:'C'},
+      {line:2,y:20,num:8,role:'cm',duty:'support',side:'L'}, {line:2,y:48,num:10,role:'ap',duty:'attack',side:'R'},
+      {line:3,y:34,num:9,role:'pf',duty:'attack',side:'C'}],
+  },
+  7: {
+    '2-3-1': [
+      {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+      {line:1,y:23,num:4,role:'cd',duty:'defend',side:'L'}, {line:1,y:45,num:5,role:'bpd',duty:'cover',side:'R'},
+      {line:2,y:11,num:7,dx:-2,role:'wm',duty:'support',side:'L'}, {line:2,y:34,num:8,dx:-3,role:'cm',duty:'support',side:'C'},
+      {line:2,y:57,num:11,dx:-2,role:'wm',duty:'support',side:'R'}, {line:3,y:34,num:9,role:'af',duty:'attack',side:'C'}],
+    '3-2-1': [
+      {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+      {line:1,y:14,num:2,role:'fb',duty:'support',side:'L'}, {line:1,y:34,num:5,role:'cd',duty:'defend',side:'C'}, {line:1,y:54,num:3,role:'fb',duty:'support',side:'R'},
+      {line:2,y:24,num:6,role:'dm',duty:'defend',side:'L'}, {line:2,y:44,num:8,role:'cm',duty:'support',side:'R'},
+      {line:3,y:34,num:9,role:'tf',duty:'support',side:'C'}],
+    '2-1-2-1': [
+      {line:0,y:34,num:1,role:'sk',duty:'support',side:'C'},
+      {line:1,y:22,num:4,role:'cd',duty:'defend',side:'L'}, {line:1,y:46,num:5,role:'cd',duty:'defend',side:'R'},
+      {line:2,y:34,num:6,dx:-4,role:'dlp',duty:'support',side:'C'},
+      {line:3,y:16,num:7,role:'iw',duty:'attack',side:'L'}, {line:3,y:52,num:11,role:'iw',duty:'attack',side:'R'},
+      {line:3,y:34,num:9,dx:2,role:'ss',duty:'attack',side:'C'}],
+  },
+  11: {
+    '4-2-3-1': [
+      {line:0,y:34,num:1,role:'sk',duty:'support',side:'C'},
+      {line:1,y:9,num:2,dx:2,role:'wb',duty:'attack',side:'L'}, {line:1,y:27,num:5,role:'bpd',duty:'defend',side:'L'},
+      {line:1,y:41,num:4,role:'cd',duty:'cover',side:'R'}, {line:1,y:59,num:3,dx:2,role:'wb',duty:'attack',side:'R'},
+      {line:2,y:24,num:6,dx:-4,role:'bwm',duty:'support',side:'L'}, {line:2,y:44,num:8,dx:-4,role:'dlp',duty:'support',side:'R'},
+      {line:3,y:12,num:11,dx:-2,role:'iw',duty:'attack',side:'L'}, {line:3,y:34,num:10,dx:-1,role:'ap',duty:'attack',side:'C'},
+      {line:3,y:56,num:7,dx:-2,role:'w',duty:'attack',side:'R'}, {line:3,y:34,num:9,dx:4,role:'pf',duty:'attack',side:'C'}],
+    '4-3-3': [
+      {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+      {line:1,y:9,num:2,dx:2,role:'fb',duty:'support',side:'L'}, {line:1,y:27,num:5,role:'cd',duty:'defend',side:'L'},
+      {line:1,y:41,num:4,role:'cd',duty:'cover',side:'R'}, {line:1,y:59,num:3,dx:2,role:'fb',duty:'support',side:'R'},
+      {line:2,y:20,num:8,role:'cm',duty:'support',side:'L'}, {line:2,y:34,num:6,dx:-4,role:'dm',duty:'defend',side:'C'},
+      {line:2,y:48,num:10,role:'mez',duty:'attack',side:'R'},
+      {line:3,y:11,num:7,dx:-3,role:'iw',duty:'attack',side:'L'}, {line:3,y:34,num:9,role:'af',duty:'attack',side:'C'},
+      {line:3,y:57,num:11,dx:-3,role:'w',duty:'support',side:'R'}],
+    '4-4-2': [
+      {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+      {line:1,y:9,num:2,dx:2,role:'fb',duty:'defend',side:'L'}, {line:1,y:27,num:5,role:'cd',duty:'defend',side:'L'},
+      {line:1,y:41,num:4,role:'cd',duty:'cover',side:'R'}, {line:1,y:59,num:3,dx:2,role:'fb',duty:'defend',side:'R'},
+      {line:2,y:11,num:7,role:'wm',duty:'support',side:'L'}, {line:2,y:27,num:6,dx:-2,role:'cm',duty:'defend',side:'L'},
+      {line:2,y:41,num:8,dx:-2,role:'cm',duty:'support',side:'R'}, {line:2,y:57,num:11,role:'wm',duty:'support',side:'R'},
+      {line:3,y:26,num:9,role:'tf',duty:'support',side:'L'}, {line:3,y:42,num:10,role:'af',duty:'attack',side:'R'}],
+    '3-5-2': [
+      {line:0,y:34,num:1,role:'sk',duty:'support',side:'C'},
+      {line:1,y:18,num:5,role:'cd',duty:'defend',side:'L'}, {line:1,y:34,num:4,role:'bpd',duty:'cover',side:'C'}, {line:1,y:50,num:6,role:'cd',duty:'defend',side:'R'},
+      {line:2,y:8,num:3,dx:2,role:'wb',duty:'attack',side:'L'}, {line:2,y:24,num:8,role:'cm',duty:'support',side:'L'},
+      {line:2,y:34,num:6,dx:-3,role:'a',duty:'defend',side:'C'}, {line:2,y:44,num:10,role:'ap',duty:'support',side:'R'},
+      {line:2,y:60,num:2,dx:2,role:'wb',duty:'attack',side:'R'},
+      {line:3,y:28,num:9,role:'dlf',duty:'support',side:'L'}, {line:3,y:40,num:11,role:'af',duty:'attack',side:'R'}],
+    '5-3-2': [
+      {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+      {line:1,y:8,num:2,role:'fb',duty:'defend',side:'L'}, {line:1,y:22,num:5,role:'cd',duty:'defend',side:'L'},
+      {line:1,y:34,num:4,role:'cd',duty:'cover',side:'C'}, {line:1,y:46,num:6,role:'cd',duty:'defend',side:'R'},
+      {line:1,y:60,num:3,role:'fb',duty:'defend',side:'R'},
+      {line:2,y:20,num:8,role:'cm',duty:'support',side:'L'}, {line:2,y:34,num:6,dx:-2,role:'dm',duty:'defend',side:'C'},
+      {line:2,y:48,num:10,role:'cm',duty:'support',side:'R'},
+      {line:3,y:26,num:9,role:'tf',duty:'support',side:'L'}, {line:3,y:42,num:11,role:'p',duty:'attack',side:'R'}],
+    '4-1-4-1': [
+      {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+      {line:1,y:9,num:2,dx:2,role:'fb',duty:'support',side:'L'}, {line:1,y:27,num:5,role:'cd',duty:'defend',side:'L'},
+      {line:1,y:41,num:4,role:'cd',duty:'cover',side:'R'}, {line:1,y:59,num:3,dx:2,role:'fb',duty:'support',side:'R'},
+      {line:2,y:34,num:6,dx:-5,role:'a',duty:'defend',side:'C'},
+      {line:2,y:11,num:7,role:'wm',duty:'attack',side:'L'}, {line:2,y:24,num:8,role:'cm',duty:'support',side:'L'},
+      {line:2,y:44,num:10,role:'ap',duty:'support',side:'R'}, {line:2,y:57,num:11,role:'wm',duty:'attack',side:'R'},
+      {line:3,y:34,num:9,role:'af',duty:'attack',side:'C'}],
+  },
+};
+const defaultFormationId = size => size === 11 ? '4-2-3-1' : size === 7 ? '2-3-1' : '2-1-1';
+const formationSlots = (size, id) => {
+  const pack = FORMATION_SHAPES[size] || FORMATION_SHAPES[7];
+  return (pack[id] || pack[defaultFormationId(size)]).map(s => ({ ...s }));
+};
+// Legacy alias used by older helpers
+const FORMATIONS = { 5: FORMATION_SHAPES[5]['2-1-1'], 7: FORMATION_SHAPES[7]['2-3-1'], 11: FORMATION_SHAPES[11]['4-3-3'] };
+
+function cloneTactics(t) {
+  return JSON.parse(JSON.stringify(t));
+}
+function makeTactics(size, partial) {
+  const formation = (partial && partial.formation) || defaultFormationId(size);
+  const base = emptyInstr();
+  const t = Object.assign(base, cloneTactics(partial || {}));
+  t.formation = formation;
+  t.inPoss = Object.assign(emptyInstr().inPoss, (partial && partial.inPoss) || {});
+  t.inTrans = Object.assign(emptyInstr().inTrans, (partial && partial.inTrans) || {});
+  t.outPoss = Object.assign(emptyInstr().outPoss, (partial && partial.outPoss) || {});
+  t.slots = formationSlots(size, formation).map((s, i) => {
+    const ov = partial && partial.slots && partial.slots[i];
+    return ov ? Object.assign({}, s, ov) : s;
+  });
+  return t;
+}
+
+function resolveStyle(baseStyle, tactics) {
+  const m = MENTALITY[tactics.mentality] || MENTALITY.balanced;
+  const ip = tactics.inPoss, op = tactics.outPoss, tr = tactics.inTrans;
+  const tempo = clamp((SCALE[ip.tempo] ?? 0.55) + m.tempo, 0, 1);
+  const width = clamp((WIDTH_S[ip.width] ?? 0.6) + m.width, 0, 1);
+  const directness = clamp((DIRECT_S[ip.passingDirectness] ?? 0.5) + m.directness, 0, 1);
+  // Defensive line is out-of-possession only; attacking height follows mentality + tempo (counter teams spring)
+  const defLineHeight = clamp((LINE_H[op.defensiveLine] ?? 0.52) + m.lineHeight * 0.5, 0, 1);
+  const lineHeight = clamp(0.42 + m.lineHeight + tempo * 0.18 + (directness > 0.7 ? 0.12 : 0) + ((baseStyle.lineHeight || 0.5) - 0.5) * 0.25, 0.2, 0.95);
+  const pressIntensity = clamp((PRESS_S[op.triggerPress] ?? 0.55) + m.pressIntensity, 0, 1);
+  const engage = ENGAGE[op.lineOfEngagement] ?? 0.55;
+  // Compactness from defensive width + structured/expressive play (real blocks sit narrow + short)
+  const defWidth = WIDTH_S[op.width] ?? 0.6;
+  const compactFinal = clamp(0.35 + (1 - defWidth) * 0.4 + (ip.beMoreExpressive ? -0.08 : 0.06) + m.compact, 0.25, 0.98);
+  let block = 'mid';
+  if (engage >= 0.75 || defLineHeight >= 0.78) block = 'high';
+  else if (engage <= 0.4 || defLineHeight <= 0.35) block = 'low';
+  const risk = clamp((baseStyle.risk ?? 0.5) + m.risk * 0.7 + (ip.beMoreExpressive ? 0.08 : 0) + (ip.workBallIntoBox ? -0.06 : 0) + (ip.shootOnSight ? 0.06 : 0), 0.12, 0.88);
+  let buildUp = baseStyle.buildUp || 'mixed';
+  if (ip.playOutOfDefence || directness < 0.35) buildUp = 'short';
+  else if (directness > 0.7) buildUp = 'direct';
+  else buildUp = 'mixed';
+  return {
+    block, lineHeight, defLineHeight, compact: compactFinal, pressIntensity,
+    counterPress: tr.counterPress ? (2.5 + pressIntensity * 3.5) : 0,
+    tempo, directness, width, risk, buildUp,
+    engage, getStuckIn: !!op.getStuckIn, preventShortGK: !!op.preventShortGK,
+    workBallIntoBox: !!ip.workBallIntoBox, shootOnSight: !!ip.shootOnSight, beMoreExpressive: !!ip.beMoreExpressive,
+    counter: tr.counter !== false, overlap: ip.overlap || 'sometimes', underlap: ip.underlap || 'rarely',
+    focusPlay: ip.focusPlay || 'mixed', distribute: tr.distribute || 'mixed', stepUpMore: !!op.stepUpMore,
+  };
+}
+
 const PRESETS = [
-  { id:'IRV', name:'IRONVALE FC', short:'IRV', personality:'PRESSING MANIAC', quality:0.5,
+  { id:'IRV', name:'IRONVALE FC', short:'IRV', personality:'GEGENPRESS', quality:0.5,
     kit:{ shirt:'R', shorts:'W', alt:'W', altShorts:'R', gk:'Y' },
     bias:{ stamina:2, pace:1, tackling:1, composure:-1 },
-    style:{ block:'high', lineHeight:0.8, compact:0.75, pressIntensity:0.9, counterPress:4, tempo:0.85, directness:0.6, width:0.7, risk:0.65, buildUp:'mixed' } },
+    style:{ block:'high', lineHeight:0.8, compact:0.75, pressIntensity:0.9, counterPress:4, tempo:0.85, directness:0.6, width:0.7, risk:0.65, buildUp:'mixed' },
+    tacticsBase: {
+      mentality: 'attacking',
+      inPoss: { tempo:'higher', width:'fairly-wide', passingDirectness:'slightly-more-direct', playOutOfDefence:false, workBallIntoBox:false, beMoreExpressive:false, shootOnSight:true, overlap:'often', underlap:'sometimes', focusPlay:'mixed' },
+      inTrans: { counterPress:true, counter:true, distribute:'quickly' },
+      outPoss: { defensiveLine:'higher', lineOfEngagement:'much-higher', width:'fairly-narrow', triggerPress:'much-more-often', preventShortGK:true, getStuckIn:true, stepUpMore:true },
+      formations: { 5:'1-2-1', 7:'2-1-2-1', 11:'4-2-3-1' },
+    } },
   { id:'SAL', name:'SALTMARSH ATH', short:'SAL', personality:'LOW BLOCK COUNTER', quality:0.5,
     kit:{ shirt:'B', shorts:'W', alt:'Y', altShorts:'B', gk:'P' },
     bias:{ strength:2, heading:2, positioning:2, pace:1, passing:-1 },
-    style:{ block:'low', lineHeight:0.2, compact:0.9, pressIntensity:0.35, counterPress:0, tempo:0.8, directness:0.85, width:0.55, risk:0.55, buildUp:'direct' } },
+    style:{ block:'low', lineHeight:0.2, compact:0.9, pressIntensity:0.35, counterPress:0, tempo:0.8, directness:0.85, width:0.55, risk:0.55, buildUp:'direct' },
+    tacticsBase: {
+      mentality: 'balanced',
+      inPoss: { tempo:'higher', width:'fairly-wide', passingDirectness:'much-more-direct', playOutOfDefence:false, workBallIntoBox:false, beMoreExpressive:false, shootOnSight:true, overlap:'sometimes', underlap:'rarely', focusPlay:'mixed' },
+      inTrans: { counterPress:false, counter:true, distribute:'to-flanks' },
+      outPoss: { defensiveLine:'deeper', lineOfEngagement:'slightly-deeper', width:'narrow', triggerPress:'less-often', preventShortGK:false, getStuckIn:false, stepUpMore:false },
+      formations: { 5:'2-1-1', 7:'2-3-1', 11:'5-3-2' },
+      slotOverrides: {
+        7: [
+          {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+          {line:1,y:23,num:4,role:'cd',duty:'defend',side:'L'}, {line:1,y:45,num:5,role:'cd',duty:'cover',side:'R'},
+          {line:2,y:11,num:7,dx:-2,role:'wm',duty:'support',side:'L'}, {line:2,y:34,num:6,dx:-3,role:'cm',duty:'support',side:'C'},
+          {line:2,y:57,num:11,dx:-2,role:'wm',duty:'attack',side:'R'}, {line:3,y:34,num:9,role:'af',duty:'attack',side:'C'}],
+        11: [
+          {line:0,y:34,num:1,role:'gk',duty:'defend',side:'C'},
+          {line:1,y:8,num:2,role:'fb',duty:'support',side:'L'}, {line:1,y:22,num:5,role:'cd',duty:'defend',side:'L'},
+          {line:1,y:34,num:4,role:'cd',duty:'cover',side:'C'}, {line:1,y:46,num:6,role:'cd',duty:'defend',side:'R'},
+          {line:1,y:60,num:3,role:'fb',duty:'support',side:'R'},
+          {line:2,y:20,num:8,role:'cm',duty:'support',side:'L'}, {line:2,y:34,num:6,dx:-2,role:'dm',duty:'defend',side:'C'},
+          {line:2,y:48,num:10,role:'cm',duty:'attack',side:'R'},
+          {line:3,y:26,num:9,role:'tf',duty:'support',side:'L'}, {line:3,y:42,num:11,role:'af',duty:'attack',side:'R'}],
+      },
+    } },
   { id:'LUM', name:'LUMEN CITY', short:'LUM', personality:'POSSESSION PURIST', quality:0.5,
     kit:{ shirt:'O', shorts:'K', alt:'C', altShorts:'K', gk:'C' },
     bias:{ passing:2, vision:2, composure:2, dribbling:1, strength:-2, heading:-1 },
-    style:{ block:'mid', lineHeight:0.55, compact:0.7, pressIntensity:0.6, counterPress:3, tempo:0.25, directness:0.2, width:1.0, risk:0.3, buildUp:'short' } },
+    style:{ block:'mid', lineHeight:0.55, compact:0.7, pressIntensity:0.6, counterPress:3, tempo:0.25, directness:0.2, width:1.0, risk:0.3, buildUp:'short' },
+    tacticsBase: {
+      mentality: 'positive',
+      inPoss: { tempo:'much-lower', width:'very-wide', passingDirectness:'much-shorter', playOutOfDefence:true, workBallIntoBox:true, beMoreExpressive:true, shootOnSight:false, overlap:'often', underlap:'often', focusPlay:'mixed' },
+      inTrans: { counterPress:true, counter:false, distribute:'take-short' },
+      outPoss: { defensiveLine:'standard', lineOfEngagement:'slightly-higher', width:'fairly-wide', triggerPress:'standard', preventShortGK:true, getStuckIn:false, stepUpMore:true },
+      formations: { 5:'1-2-1', 7:'2-3-1', 11:'4-3-3' },
+    } },
 ];
 const presetById = id => PRESETS.find(p => p.id === id) || PRESETS[0];
 
-// Base shapes: line 0 GK, 1 defence, 2 midfield, 3 attack. y = lateral slot, dx = depth tweak (m)
-const FORMATIONS = {
-  5:  [{line:0,y:34,num:1},{line:1,y:22,num:4},{line:1,y:46,num:5},{line:2,y:34,num:8},{line:3,y:34,num:9}],
-  7:  [{line:0,y:34,num:1},{line:1,y:23,num:4},{line:1,y:45,num:5},{line:2,y:11,num:7,dx:-2},{line:2,y:34,num:8,dx:-3},
-       {line:2,y:57,num:11,dx:-2},{line:3,y:34,num:9}],
-  11: [{line:0,y:34,num:1},{line:1,y:9,num:2,dx:2},{line:1,y:27,num:5},{line:1,y:41,num:4},{line:1,y:59,num:3,dx:2},
-       {line:2,y:20,num:8},{line:2,y:34,num:6,dx:-4},{line:2,y:48,num:10},{line:3,y:11,num:7,dx:-3},{line:3,y:34,num:9},{line:3,y:57,num:11,dx:-3}],
-};
+function tacticsForPreset(preset, size, override) {
+  const tb = preset.tacticsBase || {};
+  const formation = (override && override.formation) || (tb.formations && tb.formations[size]) || defaultFormationId(size);
+  const slotOv = (override && override.slots) || (tb.slotOverrides && tb.slotOverrides[size]) || null;
+  const partial = Object.assign({}, tb, override || {}, { formation, formations: undefined, slotOverrides: undefined });
+  if (slotOv && !(override && override.slots)) partial.slots = slotOv.map(s => ({ ...s }));
+  return makeTactics(size, partial);
+}
+
 const SYL = ['ka','to','ren','vel','mar','is','do','bra','lo','sen','ti','ko','va','ran','el','mo','dez','fi','gor','an','sa','lu','pe','tor','vin','ha','be','ro','ni','sk'];
 
-function buildSquad(preset, size) {
-  const rnd = mulberry32(hashStr(preset.id + size));
-  return FORMATIONS[size].map((r, i) => {
-    const key = r.line === 0 ? 'gk' : ['', 'def', 'mid', 'att'][r.line];
+function buildSquad(preset, size, tactics) {
+  const rnd = mulberry32(hashStr(preset.id + size + (tactics && tactics.formation || '')));
+  const slots = (tactics && tactics.slots) || formationSlots(size, defaultFormationId(size));
+  return slots.map((r, i) => {
+    const key = (ROLES[r.role] && ROLES[r.role].attr) || (r.line === 0 ? 'gk' : ['', 'def', 'mid', 'att'][r.line]);
     const a = {};
     for (const k of ATTRS) a[k] = clamp(Math.round((ROLE_TPL[key][k] || 10) + (preset.bias[k] || 0) + preset.quality + (rnd() - 0.5) * 6), 1, 20);
     let name = ''; const n = 2 + (rnd() < 0.3 ? 1 : 0);
     for (let s = 0; s < n; s++) name += SYL[Math.floor(rnd() * SYL.length)];
-    return { role: r, attrs: a, name: name.slice(0, 8).toUpperCase(), skin: rnd() < 0.5 ? 'S' : 'T', hair: ['N','K','Y','T'][Math.floor(rnd() * 4)] };
+    return { role: r, roleId: r.role, duty: r.duty, side: r.side || 'C', attrs: a, name: name.slice(0, 8).toUpperCase(),
+      skin: rnd() < 0.5 ? 'S' : 'T', hair: ['N','K','Y','T'][Math.floor(rnd() * 4)], pi: defaultPI() };
+  });
+}
+
+function applyTeamTactics(T, tactics) {
+  T.tactics = tactics;
+  T.style = resolveStyle(T.preset.style, tactics);
+  tactics.slots.forEach((slot, i) => {
+    const p = T.players[i]; if (!p) return;
+    p.role = slot; p.roleId = slot.role; p.duty = slot.duty; p.side = slot.side || 'C';
+    p.line = (ROLES[slot.role] && ROLES[slot.role].line) || slot.line; p.isGK = p.line === 0 || slot.role === 'gk' || slot.role === 'sk';
+    p.beh = roleBehaviour(p.roleId, p.duty, p.side);
+    if (!p.pi) p.pi = defaultPI();
   });
 }
 
@@ -204,16 +543,21 @@ function createMatch(o) {
   M.gauss = () => { let u = 0; while (u === 0) u = M.rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * M.rnd()); };
   M.stoppage = [Math.floor(M.rnd() * 3) * 60 + 30, Math.floor(M.rnd() * 4) * 60 + 60];
   const presets = [presetById(o.home), presetById(o.away)];
+  const tacOv = [o.homeTactics, o.awayTactics];
   presets.forEach((pr, t) => {
     const kit = { ...pr.kit };
     if (t === 1 && pr.kit.shirt === presets[0].kit.shirt) { kit.shirt = pr.kit.alt; kit.shorts = pr.kit.altShorts; }
     if (t === 1 && kit.gk === presets[0].kit.gk) kit.gk = 'L';
-    const T = { idx: t, preset: pr, name: pr.name, short: pr.short, style: { ...pr.style }, dir: t === 0 ? 1 : -1, kit, players: [],
-      lossTick: -999, winTick: -999,
+    const tactics = tacticsForPreset(pr, size, tacOv[t]);
+    const T = { idx: t, preset: pr, name: pr.name, short: pr.short, style: resolveStyle(pr.style, tactics), tactics,
+      dir: t === 0 ? 1 : -1, kit, players: [], lossTick: -999, winTick: -999,
       stats: { goals:0, shots:0, sot:0, xg:0, passes:0, passComp:0, possTicks:0, tackles:0, tackWon:0, inter:0, fouls:0, yellows:0, reds:0,
         corners:0, offsides:0, press:0, ppdaPass:0, ppdaDef:0, saves:0 } };
-    buildSquad(pr, size).forEach((s, i) => {
-      const p = { id: t * 100 + i, team: t, idx: i, num: s.role.num, name: s.name, role: s.role, line: s.role.line, isGK: s.role.line === 0,
+    buildSquad(pr, size, tactics).forEach((s, i) => {
+      const pi = (tactics._pi && tactics._pi[i]) ? Object.assign(defaultPI(), tactics._pi[i]) : (s.pi || defaultPI());
+      const p = { id: t * 100 + i, team: t, idx: i, num: s.role.num, name: s.name, role: s.role, roleId: s.roleId, duty: s.duty, side: s.side,
+        line: s.role.line, isGK: s.role.line === 0 || s.roleId === 'gk' || s.roleId === 'sk',
+        beh: roleBehaviour(s.roleId, s.duty, s.side), pi,
         a: s.attrs, skin: s.skin, hair: s.hair, x: 0, y: 0, vx: 0, vy: 0, px: 0, py: 0, fx: 1, fy: 0, energy: 1, tx: 0, ty: 0, urg: 0.5,
         think: 0, mode: '', task: 'shape', kickCd: 0, tackleCd: 0, stun: 0, active: true, yellow: 0, anim: 0, holding: false, saveTried: -1,
         st: { goals:0, assists:0, shots:0, xg:0, passes:0, passComp:0, tackles:0, tackWon:0, inter:0, fouls:0, saves:0, dist:0, touches:0, conceded:0 } };
@@ -223,7 +567,9 @@ function createMatch(o) {
   });
   M.ball = { x: 52.5, y: 34, z: 0, vx: 0, vy: 0, vz: 0, px: 52.5, py: 34, pz: 0, owner: null, lastTouch: null, shot: null };
   setKickoff(M, 0);
+  const tacLine = T => `${T.short} ${T.tactics.formation} / ${T.tactics.mentality.replace(/-/g, ' ')} / ${T.style.block} block`;
   logEvt(M, `KICK OFF: ${M.teams[0].name} V ${M.teams[1].name}`);
+  logEvt(M, `TACTICS  ${tacLine(M.teams[0])}  |  ${tacLine(M.teams[1])}`);
   emit(M, 'whistle', { n: 1 });
   return M;
 }
@@ -311,33 +657,59 @@ function offsideLineA(M, T) {
    SECTION 6 - TEAM SHAPE (anchor spots driven by style + ball)
    ===================================================================== */
 function formationSpot(M, p, forcePoss) {
-  const T = M.teams[p.team], st = T.style, r = p.role;
+  const T = M.teams[p.team], st = T.style, r = p.role, beh = p.beh || roleBehaviour(p.roleId || 'cm', p.duty || 'support', p.side || 'C');
   const inPoss = forcePoss !== undefined ? forcePoss : M.possTeam === p.team;
   const bAx = toA(T, M.ball.x), by = M.ball.y;
+  const line = p.line != null ? p.line : r.line;
   let ax, y;
+  // Focus play gently shades the block toward a flank (real coaching: overload left/right)
+  const focusY = st.focusPlay === 'left' ? 22 : st.focusPlay === 'right' ? 46 : 34;
   if (inPoss) {
     // back line follows the ball; front line pins the opponent's last line (stretches the block for depth)
     const back = clamp(bAx - 28 + 10 * st.lineHeight, 12, 62);
     const offL = M.offside ? offsideLineA(M, T) - 1 : 100;
-    const front = clamp(Math.min(offL, back + 30 + 14 * (1 - st.compact)), bAx + 6, 101);
-    const t = (r.line - 1) / 2;                                        // 0 defence, 0.5 midfield, 1 attack
-    ax = lerp(back, Math.max(front, back + 12), t) + (r.dx || 0);
-    y = 34 + (r.y - 34) * (0.85 + 0.45 * st.width) + (by - 34) * 0.25;
-    if (M.offside && r.line > 1) ax = Math.min(ax, offL + 0.2);
+    const front = clamp(Math.min(offL, back + 30 + 14 * (1 - st.compact * 0.65)), bAx + 6, 101);
+    const t = Math.max(0, (line - 1) / 2);                                 // 0 defence, 0.5 midfield, 1 attack
+    ax = lerp(back, Math.max(front, back + 12), t) + (r.dx || 0) + beh.dxIn;
+    // Overlap/underlap: full-backs & wing-backs push on when instructed
+    let under = 0;
+    if ((p.roleId === 'fb' || p.roleId === 'wb' || p.roleId === 'iwb') && line <= 2) {
+      const ov = st.overlap === 'often' ? 5 : st.overlap === 'sometimes' ? 2 : 0;
+      under = st.underlap === 'often' ? 3 : st.underlap === 'sometimes' ? 1 : 0;
+      if (p.roleId !== 'iwb') ax += ov;
+      else ax += under;
+    }
+    const widthMul = 0.85 + 0.45 * st.width + (beh.stayWide || 0) * 0.15 - (beh.cutInside || 0) * 0.2;
+    const sideSign = p.side === 'L' ? -1 : p.side === 'R' ? 1 : Math.sign(r.y - 34) || 0;
+    const slotY = r.y + (beh.dyIn || 0) - sideSign * under * 2.2;
+    y = 34 + (slotY - 34) * widthMul + (by - 34) * 0.18 + (focusY - 34) * 0.12;
+    if (beh.cutInside) y = lerp(y, 34 + Math.sign((r.y - 34) || 1) * 6, beh.cutInside * 0.45);
+    if (M.offside && line > 1) ax = Math.min(ax, offL + 0.2);
+    // Counter transition: push higher after winning the ball (longer/faster if direct)
+    const cWin = (M.tick - T.winTick) * DT;
+    if (st.counter && cWin < (5 + st.directness * 4) && line >= 2) {
+      ax = Math.min(offL, ax + 5 + beh.getForward * 4 + st.directness * 5);
+    }
   } else {
     const lim = { high: [30, 58], mid: [20, 42], low: [11, 28] }[st.block];
-    const back = clamp(bAx - 26 + 8 * st.lineHeight, lim[0], lim[1]);  // line follows the ball within block limits
+    const defH = st.defLineHeight != null ? st.defLineHeight : st.lineHeight;
+    const back = clamp(bAx - 26 + 8 * defH, lim[0], lim[1]);           // OOP line only
     const gap = 7 + 5 * (1 - st.compact);                              // vertical compactness
-    ax = back + (r.line - 1) * gap + (r.dx || 0) * 0.5;
-    y = 34 + (r.y - 34) * (0.55 + 0.25 * (1 - st.compact)) + (by - 34) * 0.5;  // horizontal compactness + ball-side shift
+    ax = back + (line - 1) * gap + (r.dx || 0) * 0.5 + (beh.dxOut || 0);
+    // Stopper steps onto the first attacker; cover sits deeper behind the line
+    if (p.duty === 'stopper') ax += 2.5; else if (p.duty === 'cover') ax -= 2.2;
+    if (st.stepUpMore && line === 1) ax += 1.5;
+    y = 34 + (r.y + (beh.dyOut || 0) - 34) * (0.55 + 0.25 * (1 - st.compact)) + (by - 34) * 0.5;
   }
   return { x: fromA(T, clamp(ax, 3, 102)), y: clamp(y, 2, 66) };
 }
 function gkSpot(M, gk) {
   const T = M.teams[gk.team], gx = T.dir === 1 ? 0 : CFG.PW, b = M.ball;
   const dB = hyp(b.x - gx, b.y - 34), bAx = toA(T, b.x);
+  const sweep = (gk.beh && gk.beh.gkSweep) || (gk.roleId === 'sk' ? 0.7 : 0);
   let depth = clamp(1 + dB * 0.06, 1, 5);
-  if (bAx > 55 && M.possTeam !== T.idx) depth += T.style.lineHeight * 7;        // sweeper-keeper behind a high line
+  if (bAx > 55 && M.possTeam !== T.idx) depth += (T.style.defLineHeight != null ? T.style.defLineHeight : T.style.lineHeight) * 7 * (0.55 + sweep);
+  if (sweep && M.possTeam === T.idx) depth += 1.5 + sweep * 2;
   const ux = (b.x - gx) / (dB || 1), uy = (b.y - 34) / (dB || 1);
   return { x: gx + ux * depth, y: clamp(34 + uy * depth, 34 - 5, 34 + 5) };
 }
@@ -505,16 +877,54 @@ function decideOnBall(M, p, rt) {
     opts.push({ type: 'pass', kind: 'lofted', recv: null, tx, ty, p: 0.45, value: epvA(ax + 45, ty) * 0.6, lossCost: epvA(60 - ax, ty) * 0.6, bonus: -0.004 });
   }
   if (!opts.length) return null;
-  // build-up style for keepers
+  // build-up style for keepers + distribute instruction
   if (p.isGK) for (const o of opts) if (o.type === 'pass' && o.recv) {
     if (st.buildUp === 'short' && o.kind === 'ground' && o.recv.line === 1) o.bonus += 0.015;
     if (st.buildUp === 'direct' && o.kind === 'lofted' && o.recv.line >= 2) o.bonus += 0.02;
+    if (st.distribute === 'take-short' && o.kind === 'ground') o.bonus += 0.012;
+    if (st.distribute === 'quickly' && o.recv.line >= 2) o.bonus += 0.01;
+    if (st.distribute === 'to-flanks' && Math.abs(o.ty - 34) > 16) o.bonus += 0.01;
+    if (st.distribute === 'to-centre' && Math.abs(o.ty - 34) < 10) o.bonus += 0.01;
+    // Opponent "prevent short GK distribution" makes short build-out less attractive
+    if (M.teams[1 - p.team].style.preventShortGK && o.recv && o.recv.line === 1 && o.kind === 'ground') o.bonus -= 0.018;
   }
-  const riskK = CFG.LOSS_K * (1.4 - 0.8 * st.risk);
+  // Role / duty / player-instruction shaping of the action menu (FM principle tree)
+  const beh = p.beh || roleBehaviour(p.roleId || 'cm', p.duty || 'support', p.side || 'C');
+  const pi = p.pi || defaultPI();
+  const riskK = CFG.LOSS_K * (1.4 - 0.8 * clamp(st.risk + (pi.takeMoreRisks ? 0.15 : 0), 0.05, 0.95));
+  for (const o of opts) {
+    if (o.type === 'shot') {
+      o.bonus += beh.shoot + (st.shootOnSight ? 0.01 : 0) + (pi.shootMore ? 0.012 : 0) - (pi.shootLess ? 0.012 : 0);
+      if (st.workBallIntoBox && ax < 92) o.bonus -= 0.01;
+    } else if (o.type === 'dribble') {
+      o.bonus += beh.dribble + (pi.dribbleMore ? 0.01 : 0) - (pi.dribbleLess ? 0.01 : 0) + (st.beMoreExpressive ? 0.006 : 0);
+    } else if (o.type === 'hold') {
+      o.bonus += beh.hold + (beh.holdUp || pi.holdUp ? 0.012 : 0);
+    } else if (o.type === 'pass') {
+      const prog = toA(T, o.tx) - ax;
+      o.bonus += (prog > 0 ? beh.progressive : beh.recycle) || 0;
+      if (o.kind === 'through') o.bonus += beh.through || 0;
+      if (o.cross) o.bonus += (beh.cross || 0) + (pi.crossMore ? 0.01 : 0);
+      if (o.recv) {
+        // Prefer overlapping full-backs / underlapping IWBs when those runs exist
+        if ((o.recv.roleId === 'wb' || o.recv.roleId === 'fb') && st.overlap === 'often') o.bonus += 0.006;
+        if (o.recv.roleId === 'iwb' && st.underlap !== 'rarely') o.bonus += 0.005;
+        if (st.focusPlay === 'left' && o.ty < 28) o.bonus += 0.005;
+        if (st.focusPlay === 'right' && o.ty > 40) o.bonus += 0.005;
+        if (st.focusPlay === 'centre' && Math.abs(o.ty - 34) < 12) o.bonus += 0.004;
+      }
+    }
+    // Creative freedom: soften risk penalty via bonus on lower-probability progressive actions
+    if (st.beMoreExpressive || beh.creative > 0.7) {
+      if (o.type === 'pass' && o.kind !== 'ground') o.bonus += 0.004 * beh.creative;
+      if (o.type === 'dribble') o.bonus += 0.003 * beh.creative;
+    }
+  }
   let umax = -9;
   for (const o of opts) { o.u = o.p * o.value - (1 - o.p) * o.lossCost * riskK + o.bonus; if (o.u > umax) umax = o.u; }
-  // softmax: temperature rises with fatigue & pressure, falls with composure & decisions
-  const temp = CFG.TEMP_BASE * (1.6 - (p.a.composure + p.a.decisions) / 40) * (1 + (1 - p.energy) * 1.5) * (1 + pres * 0.6);
+  // softmax: temperature rises with fatigue & pressure, falls with composure & decisions; expressive sides play hotter
+  const temp = CFG.TEMP_BASE * (1.6 - (p.a.composure + p.a.decisions) / 40) * (1 + (1 - p.energy) * 1.5) * (1 + pres * 0.6)
+    * (st.beMoreExpressive ? 1.25 : 0.95);
   let sum = 0;
   for (const o of opts) { o.w = Math.exp((o.u - umax) / temp); sum += o.w; }
   let r = M.rnd() * sum, pick = opts[0];
@@ -608,15 +1018,24 @@ function offBallAttack(M, p) {
   const carrier = M.ball.owner && M.ball.owner.team === p.team ? M.ball.owner : null;
   const cx = carrier ? carrier.x : M.ball.x, cy = carrier ? carrier.y : M.ball.y;
   const offLine = M.offside ? offsideLineA(M, T) - 0.6 : 104;
+  const beh = p.beh || roleBehaviour(p.roleId || 'cm', p.duty || 'support', p.side || 'C');
+  const pi = p.pi || defaultPI();
   let best = anchor, bestS = -1e9;
-  const anchorW = CFG.W_ANCHOR * (p.line === 1 ? 3 : 1);
+  const anchorW = CFG.W_ANCHOR * (p.line === 1 ? 3 : 1) * (1 + beh.sit * 0.8) * (pi.roam || beh.roam ? 0.55 : 1);
   const cand = [[0, 0]];
   for (let k = 0; k < 8; k++) cand.push([Math.cos(k * Math.PI / 4) * 5, Math.sin(k * Math.PI / 4) * 5]);
-  if (p.line > 1) for (const [a, b] of [[10, 0], [-9, 0], [0, 10], [0, -10]]) cand.push([a * T.dir, b]);
+  if (p.line > 1 || beh.getForward > 0.6) for (const [a, b] of [[10, 0], [-9, 0], [0, 10], [0, -10]]) cand.push([a * T.dir, b]);
+  // Role-specific probing runs
+  if (beh.getForward > 0.7) cand.push([14 * T.dir, 0], [11 * T.dir, (p.side === 'L' ? -6 : 6)]);
+  if (beh.stayWide > 0.6) cand.push([4 * T.dir, (p.side === 'L' ? -8 : 8)]);
+  if (beh.cutInside > 0.5) cand.push([8 * T.dir, (p.side === 'L' ? 7 : -7)]);
+  if (beh.holdUp || pi.holdUp) cand.push([-4 * T.dir, 0], [2 * T.dir, 0]);
   for (const [ox, oy] of cand) {
     let x = clamp(anchor.x + ox, 2, 103), y = clamp(anchor.y + oy, 1.5, 66.5);
+    if (pi.stayWider) y = clamp(y + Math.sign(y - 34 || (p.side === 'L' ? -1 : 1)) * 3, 1.5, 66.5);
+    if (pi.sitNarrower) y = lerp(y, 34, 0.25);
     let ax = toA(T, x); if (ax > offLine) { ax = offLine; x = fromA(T, ax); }
-    let s = -anchorW * ((x - anchor.x) ** 2 + (y - anchor.y) ** 2) + CFG.W_VALUE * epvA(ax, y);
+    let s = -anchorW * ((x - anchor.x) ** 2 + (y - anchor.y) ** 2) + CFG.W_VALUE * epvA(ax, y) * (0.85 + beh.getForward * 0.3);
     let lane = 9, space = 99;
     for (const o of O.players) {
       if (!o.active) continue;
@@ -628,6 +1047,9 @@ function offBallAttack(M, p) {
       s += CFG.W_LANE * clamp(lane / 4, 0, 1);
       const dc = hyp(x - cx, y - cy);
       if (dc < 7) s -= 0.03 * (7 - dc) / 7; else if (dc > 35) s -= 0.02 * (dc - 35) / 10;
+      // Target forwards / DLFs offer closer to feet; poachers stretch the last line
+      if (beh.holdUp && dc < 12 && toA(T, x) < toA(T, cx) + 2) s += 0.025;
+      if (p.roleId === 'p' && ax > offLine - 3) s += 0.02;
     }
     let crowd = 0;
     for (const q of T.players) if (q !== p && q.active) { const d = hyp(q.tx - x, q.ty - y); if (d < 9) crowd += (9 - d) / 9; }
@@ -635,8 +1057,9 @@ function offBallAttack(M, p) {
     if (s > bestS) { bestS = s; best = { x, y }; }
   }
   p.tx = best.x; p.ty = best.y;
-  const d = hyp(p.tx - p.x, p.ty - p.y), counter = (M.tick - T.winTick) * DT < 4;
+  const d = hyp(p.tx - p.x, p.ty - p.y), counter = T.style.counter && (M.tick - T.winTick) * DT < 5;
   p.urg = d > 10 ? (counter ? 1 : 0.85) : d > 4 ? 0.7 : 0.45;
+  if (beh.getForward > 0.85 && d > 6) p.urg = Math.max(p.urg, 0.9);
 }
 function offBallDefend(M, p) {
   const T = M.teams[p.team], O = opp(M, p), anchor = formationSpot(M, p, false);
@@ -664,13 +1087,22 @@ function assignDefense(M) {
     if (attacking || !o || o.team === T.idx) continue;
     const st = T.style, dax = toA(T, o.x);
     const counter = (M.tick - T.lossTick) * DT < st.counterPress;
+    // Line of engagement: how high the press triggers (FM out-of-possession)
+    const engLim = 28 + (st.engage ?? 0.55) * 70;
     const lim = { high: 105, mid: 70, low: 45 }[st.block];
-    const inZone = dax < lim || dax < 30;
-    const cands = T.players.filter(p => p.active && !p.isGK).map(p => ({ p, t: timeTo(p, o.x, o.y) })).sort((a, b) => a.t - b.t);
+    const inZone = dax < Math.max(lim * (0.7 + (st.engage ?? 0.55) * 0.5), engLim) || dax < 30;
+    // Prefer natural pressers (BWM, PF, high-press roles) when choosing who closes down
+    const cands = T.players.filter(p => p.active && !p.isGK).map(p => {
+      const beh = p.beh || roleBehaviour(p.roleId || 'cm', p.duty || 'support', p.side || 'C');
+      const pi = p.pi || defaultPI();
+      const pressFit = beh.press + (pi.closeDownMore ? 0.25 : 0) + (p.duty === 'stopper' ? 0.15 : 0);
+      return { p, t: timeTo(p, o.x, o.y) - pressFit * 0.55, pressFit };
+    }).sort((a, b) => a.t - b.t);
     if (!cands.length) continue;
     const gx = T.dir === 1 ? 0 : CFG.PW, gd = hyp(gx - o.x, 34 - o.y) || 1, ux = (gx - o.x) / gd, uy = (34 - o.y) / gd;
+    const nPress = counter ? 2 : (inZone ? (st.pressIntensity > 0.75 ? 2 : st.pressIntensity > 0.45 ? 1 : 0) : 0);
     const p1 = cands[0].p;
-    if (inZone || counter) {
+    if (nPress >= 1 || (inZone && cands[0].pressFit > 0.7)) {
       p1.task = 'press';
       // cover shadow: curve run toward the carrier's nearest teammate so the lane behind is blocked
       let mate = null, md = 99;
@@ -681,12 +1113,25 @@ function assignDefense(M) {
     } else { p1.task = 'contain'; p1.tx = o.x + ux * 4.5; p1.ty = o.y + uy * 4.5; p1.urg = 0.85; }
     if (cands[1]) {
       const p2 = cands[1].p;
-      if (counter && st.counterPress > 0) { p2.task = 'press'; p2.tx = o.x + ux * 1.5; p2.ty = o.y + uy * 1.5; p2.urg = 1; }
-      else if (inZone && st.pressIntensity > 0.7) {
+      if (nPress >= 2 || (counter && st.counterPress > 0)) { p2.task = 'press'; p2.tx = o.x + ux * 1.5; p2.ty = o.y + uy * 1.5; p2.urg = 1; }
+      else if (inZone && st.pressIntensity > 0.55) {
         let tgt = null, td = 99;
         for (const q of M.teams[o.team].players) if (q !== o && q.active) { const d = hyp(q.x - o.x, q.y - o.y); if (d < td) { td = d; tgt = q; } }
-        if (tgt) { const g2 = hyp(gx - tgt.x, 34 - tgt.y) || 1; p2.task = 'mark'; p2.tx = tgt.x + (gx - tgt.x) / g2 * 1.2; p2.ty = tgt.y + (34 - tgt.y) / g2 * 1.2; p2.urg = 0.95; }
+        if (tgt) {
+          const g2 = hyp(gx - tgt.x, 34 - tgt.y) || 1;
+          const tight = (p2.pi && p2.pi.markTighter) || (p2.beh && p2.beh.mark > 0.75) ? 0.7 : 1.2;
+          p2.task = 'mark'; p2.tx = tgt.x + (gx - tgt.x) / g2 * tight; p2.ty = tgt.y + (34 - tgt.y) / g2 * tight; p2.urg = 0.95;
+        }
       } else { p2.task = 'cover'; p2.tx = o.x + ux * 9; p2.ty = o.y + uy * 9; p2.urg = 0.8; }
+    }
+    // Third man: high-press sides send a PF/BWM to jump the next receiver
+    if (cands[2] && st.pressIntensity > 0.85 && (inZone || counter)) {
+      const p3 = cands[2].p;
+      if ((p3.beh && p3.beh.press > 0.7) || p3.roleId === 'pf' || p3.roleId === 'bwm') {
+        let tgt = null, td = 99;
+        for (const q of M.teams[o.team].players) if (q !== o && q.active) { const d = hyp(q.x - o.x, q.y - o.y); if (d < td && d > 4) { td = d; tgt = q; } }
+        if (tgt) { p3.task = 'mark'; p3.tx = tgt.x; p3.ty = tgt.y; p3.urg = 0.9; }
+      }
     }
   }
 }
@@ -866,9 +1311,10 @@ function resolveTackle(M, d, o) {
   if (toA(T, o.x) > 42) T.stats.ppdaDef++;
   const behind = (o.fx * (d.x - o.x) + o.fy * (d.y - o.y)) / (hyp(d.x - o.x, d.y - o.y) || 1) < -0.3;
   const shield = o.mode === 'hold' ? (o.a.strength - 10) * 0.02 : 0;
-  const pWin = clamp(CFG.TACKLE_BASE + CFG.TACKLE_PER_DIFF * (d.a.tackling - o.a.dribbling) + 0.012 * (d.a.strength - o.a.strength)
+  const stuck = T.style.getStuckIn ? 0.04 : 0;
+  const pWin = clamp(CFG.TACKLE_BASE + CFG.TACKLE_PER_DIFF * (d.a.tackling - o.a.dribbling) + 0.012 * (d.a.strength - o.a.strength) + stuck * 0.5
     - shield - (behind ? 0.12 : 0) + (d.energy - o.energy) * 0.2, 0.08, 0.85);
-  const pFoul = clamp(CFG.FOUL_BASE + (10 - d.a.discipline) * 0.004 + (1 - d.energy) * 0.08 + (behind ? 0.08 : 0) + T.style.pressIntensity * 0.02, 0.01, 0.4);
+  const pFoul = clamp(CFG.FOUL_BASE + (10 - d.a.discipline) * 0.004 + (1 - d.energy) * 0.08 + (behind ? 0.08 : 0) + T.style.pressIntensity * 0.02 + stuck, 0.01, 0.45);
   const r = M.rnd();
   if (r < pFoul) { foul(M, d, o, behind); return; }
   if (r < pFoul + pWin * (1 - pFoul)) {
@@ -1241,7 +1687,10 @@ function aggregate(results) {
   }
   return A;
 }
-if (typeof globalThis !== 'undefined') globalThis.__ENGINE = { CFG, PRESETS, createMatch, tick, runHeadless, aggregate, summarize };
+if (typeof globalThis !== 'undefined') globalThis.__ENGINE = {
+  CFG, PRESETS, ROLES, FORMATION_SHAPES, MENTALITY, createMatch, tick, runHeadless, aggregate, summarize,
+  tacticsForPreset, makeTactics, resolveStyle, applyTeamTactics, roleBehaviour, formationSlots, defaultFormationId,
+};
 
 /* =====================================================================
    SECTION 14 - RENDERING (8-bit)
@@ -1404,7 +1853,8 @@ function drawTitle(ctx) {
   ctx.globalAlpha = 0.6; ctx.fillStyle = PAL.K; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
   const t1 = 'GAME MODEL FC';
   drawText(ctx, t1, W / 2 - textW(t1, 3) / 2, 22, 'Y', 3, 'R');
-  drawText(ctx, 'AN 8-BIT COACHING MATCH ENGINE', W / 2 - textW('AN 8-BIT COACHING MATCH ENGINE') / 2, 46, 'W');
+  drawText(ctx, '8-BIT MATCH ENGINE', W / 2 - textW('8-BIT MATCH ENGINE') / 2, 46, 'W');
+  drawText(ctx, 'FM-DEPTH TACTICS', W / 2 - textW('FM-DEPTH TACTICS') / 2, 58, 'C');
 }
 
 /* =====================================================================
@@ -1445,7 +1895,9 @@ if (typeof document !== 'undefined') (function () {
   const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
   const $ov = document.getElementById('overlay'), $log = document.getElementById('log'), $stats = document.getElementById('stats'), $dec = document.getElementById('dec');
   const ui = { speed: 1, paused: false, debug: { heat: false, tgt: false, dec: false, grid: false }, flash: 0, shake: 0, banner: null, ticker: '',
-    opts: { home: 'IRV', away: 'SAL', size: 7, offside: true, realMin: 7 }, M: null, acc: 0, last: 0, seed: (Date.now() & 0xffff) };
+    opts: { home: 'IRV', away: 'SAL', size: 7, offside: true, realMin: 7, homeTactics: null, awayTactics: null },
+    M: null, acc: 0, last: 0, seed: (Date.now() & 0xffff),
+    tac: { team: 0, tab: 'shape', sel: 0, draft: null, fromMatch: false } };
 
   function fit() {
     const st = document.getElementById('stage');
@@ -1455,9 +1907,30 @@ if (typeof document !== 'undefined') (function () {
   window.addEventListener('resize', fit); fit();
 
   const opt = (v, cur, label) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${label}</option>`;
+  const selOpts = (map, cur) => Object.keys(map).map(k => opt(k, cur, k.replace(/-/g, ' '))).join('');
+  const labelOpts = (arr, cur) => arr.map(k => opt(k, cur, String(k).replace(/-/g, ' '))).join('');
+
+  function ensureDraftTactics(teamIdx) {
+    const size = ui.opts.size;
+    const pr = presetById(teamIdx === 0 ? ui.opts.home : ui.opts.away);
+    const key = teamIdx === 0 ? 'homeTactics' : 'awayTactics';
+    if (!ui.opts[key] || !ui.opts[key].slots || ui.opts[key].slots.length !== size) {
+      ui.opts[key] = tacticsForPreset(pr, size, ui.opts[key] && ui.opts[key].slots && ui.opts[key].slots.length === size ? ui.opts[key] : null);
+    }
+    return cloneTactics(ui.opts[key]);
+  }
+
+  function tacSummary(t, pr) {
+    if (!t) return `${pr.short}: default ${pr.personality}`;
+    const st = resolveStyle(pr.style, t);
+    return `${pr.short}: ${t.formation} · ${t.mentality.replace(/-/g, ' ')} · ${st.block} block · press ${Math.round(st.pressIntensity * 100)} · tempo ${Math.round(st.tempo * 100)} · ${st.buildUp} build-up`;
+  }
+
   function showTitle() {
-    ui.M = null; ui.paused = false; $log.textContent = ''; $stats.innerHTML = '<span class="muted">No match running.</span>';
-    const o = ui.opts, pr = PRESETS.map(p => opt(p.id, '', `${p.name} - ${p.personality}`)).join('');
+    ui.M = null; ui.paused = false; ui.tac.fromMatch = false;
+    $log.textContent = ''; $stats.innerHTML = '<span class="muted">No match running. Open Tactics to shape your side.</span>';
+    const o = ui.opts;
+    ensureDraftTactics(0); ensureDraftTactics(1);
     $ov.innerHTML = `<section class="win" aria-label="Match setup"><div class="wt">Match setup</div><div class="wb">
       <div class="row"><label for="sH">Home</label><select id="sH">${PRESETS.map(p => opt(p.id, o.home, `${p.name} - ${p.personality}`)).join('')}</select></div>
       <div class="row"><label for="sA">Away</label><select id="sA">${PRESETS.map(p => opt(p.id, o.away, `${p.name} - ${p.personality}`)).join('')}</select></div>
@@ -1465,24 +1938,218 @@ if (typeof document !== 'undefined') (function () {
         <label for="sO" style="min-width:auto">Offside</label><select id="sO">${opt(1, o.offside ? 1 : 0, 'On')}${opt(0, o.offside ? 1 : 0, 'Off')}</select></div>
       <div class="row"><label for="sL">Match length</label><select id="sL">${[5, 6, 7, 8, 10].map(n => opt(n, o.realMin, n + ' real min')).join('')}</select></div>
       <div class="row muted" id="styleInfo"></div>
-      <div class="row"><button data-a="start" class="on">Kick off</button><button data-a="qsim">Quick sim 100</button></div>
+      <div class="row">
+        <button data-a="tactics" data-team="0" class="on">Home tactics</button>
+        <button data-a="tactics" data-team="1">Away tactics</button>
+        <button data-a="start" class="on">Kick off</button>
+        <button data-a="qsim">Quick sim 100</button>
+      </div>
     </div></section>`;
     const info = () => {
-      const h = presetById(document.getElementById('sH').value), a = presetById(document.getElementById('sA').value);
-      const f = p => `${p.short}: ${p.style.block} block, press ${Math.round(p.style.pressIntensity * 100)}, tempo ${Math.round(p.style.tempo * 100)}, direct ${Math.round(p.style.directness * 100)}, build-up ${p.style.buildUp}`;
-      document.getElementById('styleInfo').innerHTML = f(h) + '<br>' + f(a);
+      readOpts();
+      const h = presetById(ui.opts.home), a = presetById(ui.opts.away);
+      ui.opts.homeTactics = tacticsForPreset(h, ui.opts.size, ui.opts.homeTactics);
+      ui.opts.awayTactics = tacticsForPreset(a, ui.opts.size, ui.opts.awayTactics);
+      document.getElementById('styleInfo').innerHTML = tacSummary(ui.opts.homeTactics, h) + '<br>' + tacSummary(ui.opts.awayTactics, a);
     };
     $ov.querySelectorAll('select').forEach(s => s.addEventListener('change', info)); info();
   }
   function readOpts() {
     const g = id => document.getElementById(id);
     if (!g('sH')) return;
-    Object.assign(ui.opts, { home: g('sH').value, away: g('sA').value, size: +g('sS').value, offside: g('sO').value === '1', realMin: +g('sL').value });
+    const size = +g('sS').value;
+    const sizeChanged = size !== ui.opts.size;
+    Object.assign(ui.opts, { home: g('sH').value, away: g('sA').value, size, offside: g('sO').value === '1', realMin: +g('sL').value });
+    if (sizeChanged) {
+      ui.opts.homeTactics = tacticsForPreset(presetById(ui.opts.home), size, null);
+      ui.opts.awayTactics = tacticsForPreset(presetById(ui.opts.away), size, null);
+    }
   }
+
+  function pitchSlotStyle(slot, size) {
+    // Mini pitch: attacking up. line 0 near bottom.
+    const top = 8 + (3 - slot.line) * (size >= 11 ? 18 : 22) + (slot.dx || 0) * 0.6;
+    const left = 10 + (slot.y / 68) * 80;
+    return `left:${clamp(left, 8, 92)}%;top:${clamp(top, 6, 92)}%`;
+  }
+
+  function showTacticsBoard(teamIdx) {
+    ui.tac.team = teamIdx == null ? ui.tac.team : +teamIdx;
+    ui.tac.fromMatch = !!ui.M;
+    if (ui.M) {
+      ui.paused = true; setPauseLabel();
+      ui.tac.draft = cloneTactics(ui.M.teams[ui.tac.team].tactics);
+    } else {
+      readOpts();
+      ui.tac.draft = ensureDraftTactics(ui.tac.team);
+    }
+    ui.tac.sel = clamp(ui.tac.sel, 0, ui.tac.draft.slots.length - 1);
+    renderTacticsBoard();
+  }
+
+  function renderTacticsBoard() {
+    const t = ui.tac.draft, team = ui.tac.team, tab = ui.tac.tab, sel = ui.tac.sel;
+    const pr = ui.M ? ui.M.teams[team].preset : presetById(team === 0 ? ui.opts.home : ui.opts.away);
+    const size = ui.M ? ui.M.size : ui.opts.size;
+    const forms = Object.keys(FORMATION_SHAPES[size] || FORMATION_SHAPES[7]);
+    const slot = t.slots[sel];
+    const roleList = rolesForSlot(slot);
+    const dutyList = (ROLES[slot.role] && ROLES[slot.role].duties) || ['support'];
+    const st = resolveStyle(pr.style, t);
+    const mentalities = Object.keys(MENTALITY);
+    const scaleKeys = Object.keys(SCALE), widthKeys = Object.keys(WIDTH_S), directKeys = Object.keys(DIRECT_S);
+    const pressKeys = Object.keys(PRESS_S), lineKeys = Object.keys(LINE_H), engKeys = Object.keys(ENGAGE);
+
+    const slotsHtml = t.slots.map((s, i) => {
+      const R = ROLES[s.role] || { short: '?', name: s.role };
+      return `<div class="slot${i === sel ? ' on' : ''}" data-a="tac-sel" data-i="${i}" style="${pitchSlotStyle(s, size)}" title="${R.name}">
+        <span class="n">${s.num}</span><span class="r">${R.short}</span><span class="d">${(s.duty || '').slice(0, 3)}</span></div>`;
+    }).join('');
+
+    let panel = '';
+    if (tab === 'shape') {
+      panel = `
+        <div class="row instr"><label>Formation</label><select id="tForm">${forms.map(f => opt(f, t.formation, f)).join('')}</select></div>
+        <div class="row instr"><label>Mentality</label><select id="tMent">${labelOpts(mentalities, t.mentality)}</select></div>
+        <div class="muted" style="margin:8px 0">Resolved game model: ${st.block} block · line ${Math.round(st.lineHeight * 100)} · width ${Math.round(st.width * 100)} · press ${Math.round(st.pressIntensity * 100)} · tempo ${Math.round(st.tempo * 100)} · ${st.buildUp}</div>
+        <div class="hi">Selected #${slot.num}</div>
+        <div class="row instr"><label>Role</label><select id="tRole">${roleList.map(id => opt(id, slot.role, `${ROLES[id].short} - ${ROLES[id].name}`)).join('')}</select></div>
+        <div class="row instr"><label>Duty</label><select id="tDuty">${dutyList.map(d => opt(d, slot.duty, d)).join('')}</select></div>
+        <div class="muted">Roles drive runs, pressing, and on-ball habits like Football Manager — graphics stay 8-bit.</div>`;
+    } else if (tab === 'in') {
+      const ip = t.inPoss;
+      panel = `
+        <div class="row instr"><label>Tempo</label><select id="tTempo">${labelOpts(scaleKeys, ip.tempo)}</select></div>
+        <div class="row instr"><label>Width</label><select id="tWidth">${labelOpts(widthKeys, ip.width)}</select></div>
+        <div class="row instr"><label>Passing</label><select id="tDirect">${labelOpts(directKeys, ip.passingDirectness)}</select></div>
+        <div class="row instr"><label>Focus play</label><select id="tFocus">${labelOpts(['mixed','left','centre','right'], ip.focusPlay)}</select></div>
+        <div class="row instr"><label>Overlap</label><select id="tOv">${labelOpts(['rarely','sometimes','often'], ip.overlap)}</select></div>
+        <div class="row instr"><label>Underlap</label><select id="tUn">${labelOpts(['rarely','sometimes','often'], ip.underlap)}</select></div>
+        <label class="chk"><input type="checkbox" id="tPOD" ${ip.playOutOfDefence ? 'checked' : ''}> Play out of defence</label>
+        <label class="chk"><input type="checkbox" id="tWBIB" ${ip.workBallIntoBox ? 'checked' : ''}> Work ball into box</label>
+        <label class="chk"><input type="checkbox" id="tExpr" ${ip.beMoreExpressive ? 'checked' : ''}> Be more expressive</label>
+        <label class="chk"><input type="checkbox" id="tSOS" ${ip.shootOnSight ? 'checked' : ''}> Shoot on sight</label>`;
+    } else if (tab === 'out') {
+      const op = t.outPoss;
+      panel = `
+        <div class="row instr"><label>Defensive line</label><select id="tDL">${labelOpts(lineKeys, op.defensiveLine)}</select></div>
+        <div class="row instr"><label>Line of engagement</label><select id="tLOE">${labelOpts(engKeys, op.lineOfEngagement)}</select></div>
+        <div class="row instr"><label>Defensive width</label><select id="tDW">${labelOpts(widthKeys, op.width)}</select></div>
+        <div class="row instr"><label>Trigger press</label><select id="tTP">${labelOpts(pressKeys, op.triggerPress)}</select></div>
+        <label class="chk"><input type="checkbox" id="tPSGK" ${op.preventShortGK ? 'checked' : ''}> Prevent short GK distribution</label>
+        <label class="chk"><input type="checkbox" id="tStuck" ${op.getStuckIn ? 'checked' : ''}> Get stuck in</label>
+        <label class="chk"><input type="checkbox" id="tStep" ${op.stepUpMore ? 'checked' : ''}> Step up more</label>`;
+    } else if (tab === 'trans') {
+      const tr = t.inTrans;
+      panel = `
+        <label class="chk"><input type="checkbox" id="tCP" ${tr.counterPress ? 'checked' : ''}> Counter-press (gegenpress)</label>
+        <label class="chk"><input type="checkbox" id="tCA" ${tr.counter !== false ? 'checked' : ''}> Counter attack</label>
+        <div class="row instr"><label>Distribute</label><select id="tDist">${labelOpts(['mixed','quickly','take-short','to-flanks','to-centre'], tr.distribute)}</select></div>
+        <div class="muted">Transitions decide the first 4-6 seconds after a turnover — just like a real press trap or exit ball.</div>`;
+    } else {
+      // player instructions
+      const p = ui.M ? ui.M.teams[team].players[sel] : null;
+      const pi = (p && p.pi) || defaultPI();
+      if (!t._pi) t._pi = t.slots.map(() => defaultPI());
+      const cur = t._pi[sel] || pi;
+      t._pi[sel] = cur;
+      const chk = (id, key, label) => `<label class="chk"><input type="checkbox" data-pi="${key}" id="${id}" ${cur[key] ? 'checked' : ''}> ${label}</label>`;
+      panel = `<div class="hi">#${slot.num} ${(ROLES[slot.role] || {}).name || ''} — player instructions</div>
+        ${chk('piSM', 'shootMore', 'Shoot more often')}
+        ${chk('piSL', 'shootLess', 'Shoot less often')}
+        ${chk('piHU', 'holdUp', 'Hold up ball')}
+        ${chk('piRM', 'roam', 'Roam from position')}
+        ${chk('piSW', 'stayWider', 'Stay wider')}
+        ${chk('piSN', 'sitNarrower', 'Sit narrower')}
+        ${chk('piDM', 'dribbleMore', 'Dribble more')}
+        ${chk('piDL', 'dribbleLess', 'Dribble less')}
+        ${chk('piRK', 'takeMoreRisks', 'Take more risks')}
+        ${chk('piCD', 'closeDownMore', 'Close down more')}
+        ${chk('piMT', 'markTighter', 'Mark tighter')}
+        ${chk('piCM', 'crossMore', 'Cross more often')}`;
+    }
+
+    $ov.innerHTML = `<section class="win" id="tacWin" aria-label="Tactics board"><div class="wt">${pr.name} — tactics board</div>
+      <div class="wb">
+        <div class="tabs">
+          <button data-a="tac-tab" data-tab="shape" class="${tab === 'shape' ? 'on' : ''}">Shape / roles</button>
+          <button data-a="tac-tab" data-tab="in" class="${tab === 'in' ? 'on' : ''}">In possession</button>
+          <button data-a="tac-tab" data-tab="trans" class="${tab === 'trans' ? 'on' : ''}">Transitions</button>
+          <button data-a="tac-tab" data-tab="out" class="${tab === 'out' ? 'on' : ''}">Out of possession</button>
+          <button data-a="tac-tab" data-tab="pi" class="${tab === 'pi' ? 'on' : ''}">Player instr</button>
+          <button data-a="tac-side" data-team="0" class="${team === 0 ? 'on' : ''}">Home</button>
+          <button data-a="tac-side" data-team="1" class="${team === 1 ? 'on' : ''}">Away</button>
+        </div>
+        <div class="tac-grid">
+          <div class="pitch-mini" aria-label="Formation diagram">${slotsHtml}</div>
+          <div>${panel}</div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button data-a="tac-apply" class="on">Apply</button>
+          <button data-a="tac-reset">Reset club DNA</button>
+          <button data-a="tac-close">Close</button>
+        </div>
+      </div></section>`;
+
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', fn); };
+    bind('tForm', e => {
+      t.formation = e.target.value;
+      t.slots = formationSlots(size, t.formation);
+      ui.tac.sel = 0; renderTacticsBoard();
+    });
+    bind('tMent', e => { t.mentality = e.target.value; });
+    bind('tRole', e => {
+      slot.role = e.target.value;
+      const ds = ROLES[slot.role].duties;
+      if (!ds.includes(slot.duty)) slot.duty = ds[0];
+      renderTacticsBoard();
+    });
+    bind('tDuty', e => { slot.duty = e.target.value; });
+    bind('tTempo', e => { t.inPoss.tempo = e.target.value; });
+    bind('tWidth', e => { t.inPoss.width = e.target.value; });
+    bind('tDirect', e => { t.inPoss.passingDirectness = e.target.value; });
+    bind('tFocus', e => { t.inPoss.focusPlay = e.target.value; });
+    bind('tOv', e => { t.inPoss.overlap = e.target.value; });
+    bind('tUn', e => { t.inPoss.underlap = e.target.value; });
+    ['tPOD', 'tWBIB', 'tExpr', 'tSOS'].forEach(id => bind(id, e => {
+      const map = { tPOD: 'playOutOfDefence', tWBIB: 'workBallIntoBox', tExpr: 'beMoreExpressive', tSOS: 'shootOnSight' };
+      t.inPoss[map[id]] = e.target.checked;
+    }));
+    bind('tDL', e => { t.outPoss.defensiveLine = e.target.value; });
+    bind('tLOE', e => { t.outPoss.lineOfEngagement = e.target.value; });
+    bind('tDW', e => { t.outPoss.width = e.target.value; });
+    bind('tTP', e => { t.outPoss.triggerPress = e.target.value; });
+    ['tPSGK', 'tStuck', 'tStep'].forEach(id => bind(id, e => {
+      const map = { tPSGK: 'preventShortGK', tStuck: 'getStuckIn', tStep: 'stepUpMore' };
+      t.outPoss[map[id]] = e.target.checked;
+    }));
+    bind('tCP', e => { t.inTrans.counterPress = e.target.checked; });
+    bind('tCA', e => { t.inTrans.counter = e.target.checked; });
+    bind('tDist', e => { t.inTrans.distribute = e.target.value; });
+    $ov.querySelectorAll('input[data-pi]').forEach(el => el.addEventListener('change', e => {
+      if (!t._pi) t._pi = t.slots.map(() => defaultPI());
+      t._pi[sel][e.target.dataset.pi] = e.target.checked;
+    }));
+  }
+
+  function applyTacticsDraft() {
+    const t = cloneTactics(ui.tac.draft);
+    const pi = ui.tac.draft._pi;
+    if (ui.M) {
+      const T = ui.M.teams[ui.tac.team];
+      applyTeamTactics(T, t);
+      if (pi) pi.forEach((instr, i) => { if (T.players[i] && instr) T.players[i].pi = Object.assign(defaultPI(), instr); });
+      logEvt(ui.M, `TACTICS UPDATE  ${T.short}: ${t.formation} / ${t.mentality.replace(/-/g, ' ')}`);
+    } else {
+      if (ui.tac.team === 0) ui.opts.homeTactics = t; else ui.opts.awayTactics = t;
+    }
+  }
+
   function startMatch() {
     SFX.init(); SFX.ambient(true);
     ui.seed++;
-    ui.M = createMatch({ ...ui.opts, seed: ui.seed });
+    ensureDraftTactics(0); ensureDraftTactics(1);
+    ui.M = createMatch({ ...ui.opts, seed: ui.seed, homeTactics: ui.opts.homeTactics, awayTactics: ui.opts.awayTactics });
     ui.paused = false; ui.acc = 0; ui.banner = null; $ov.innerHTML = ''; $log.textContent = '';
     setPauseLabel();
   }
@@ -1498,7 +2165,10 @@ if (typeof document !== 'undefined') (function () {
     return `<table><tr><td class="hi">${A.short}</td><td></td><td class="hi">${B.short}</td></tr>${rows.map(r => `<tr><td>${r[1]}</td><td>${r[0]}</td><td>${r[2]}</td></tr>`).join('')}</table>`;
   }
   function showPostMatch(M) {
-    const pl = T => T.players.map(p => `<tr><td class="l">#${p.num}</td><td>${p.name}${p.active ? '' : ' (RC)'}</td><td>${p.st.goals ? p.st.goals + 'G ' : ''}${p.st.assists ? p.st.assists + 'A' : ''}</td><td>${(p.st.dist * M.gsp / DT / 1000 * 0.8).toFixed(1)}KM</td><td class="hi">${rating(p).toFixed(1)}</td></tr>`).join('');
+    const pl = T => T.players.map(p => {
+      const R = ROLES[p.roleId] || { short: '?' };
+      return `<tr><td class="l">#${p.num}</td><td>${p.name}${p.active ? '' : ' (RC)'}</td><td class="muted">${R.short} ${(p.duty || '').slice(0, 3)}</td><td>${p.st.goals ? p.st.goals + 'G ' : ''}${p.st.assists ? p.st.assists + 'A' : ''}</td><td>${(p.st.dist * M.gsp / DT / 1000 * 0.8).toFixed(1)}KM</td><td class="hi">${rating(p).toFixed(1)}</td></tr>`;
+    }).join('');
     $ov.innerHTML = `<section class="win" aria-label="Post-match report"><div class="wt">Full time: ${M.teams[0].short} ${M.teams[0].stats.goals}-${M.teams[1].stats.goals} ${M.teams[1].short}</div>
       <div class="wb" style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="min-width:220px">${statsTable(M)}</div>
@@ -1538,9 +2208,10 @@ if (typeof document !== 'undefined') (function () {
   }
 
   document.addEventListener('click', e => {
-    const btn = e.target.closest('button[data-a]'); if (!btn) return;
-    SFX.init();
+    const btn = e.target.closest('[data-a]'); if (!btn) return;
     const a = btn.dataset.a;
+    if (!a) return;
+    SFX.init();
     if (a === 'start') { readOpts(); startMatch(); }
     else if (a === 'qsim') quickSim();
     else if (a === 'menu') { SFX.ambient(false); showTitle(); }
@@ -1549,6 +2220,17 @@ if (typeof document !== 'undefined') (function () {
     else if (a === 'sp') { ui.speed = +btn.dataset.v; document.querySelectorAll('button[data-a="sp"]').forEach(b => b.classList.toggle('on', b === btn)); }
     else if (a === 'mute') { SFX.muted = !SFX.muted; btn.textContent = SFX.muted ? 'SFX off' : 'SFX on'; SFX.ambient(!!ui.M && !SFX.muted); }
     else if (a === 'dbg') { const k = btn.dataset.v; ui.debug[k] = !ui.debug[k]; btn.classList.toggle('on', ui.debug[k]); document.getElementById('decWin').hidden = !ui.debug.dec; }
+    else if (a === 'tactics') showTacticsBoard(btn.dataset.team != null ? +btn.dataset.team : (ui.M ? 0 : 0));
+    else if (a === 'tac-tab') { ui.tac.tab = btn.dataset.tab; renderTacticsBoard(); }
+    else if (a === 'tac-side') { applyTacticsDraft(); showTacticsBoard(+btn.dataset.team); }
+    else if (a === 'tac-sel') { ui.tac.sel = +btn.dataset.i; renderTacticsBoard(); }
+    else if (a === 'tac-apply') { applyTacticsDraft(); if (ui.M) { $ov.innerHTML = ''; ui.paused = false; setPauseLabel(); } else showTitle(); }
+    else if (a === 'tac-reset') {
+      const pr = ui.M ? ui.M.teams[ui.tac.team].preset : presetById(ui.tac.team === 0 ? ui.opts.home : ui.opts.away);
+      const size = ui.M ? ui.M.size : ui.opts.size;
+      ui.tac.draft = tacticsForPreset(pr, size, null); ui.tac.sel = 0; renderTacticsBoard();
+    }
+    else if (a === 'tac-close') { if (ui.M) { $ov.innerHTML = ''; } else showTitle(); }
   });
   document.addEventListener('keydown', e => { if (e.code === 'Space' && ui.M && e.target === document.body) { e.preventDefault(); ui.paused = !ui.paused; setPauseLabel(); } });
 
