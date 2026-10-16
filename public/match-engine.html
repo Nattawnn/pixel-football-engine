@@ -28,8 +28,9 @@
   button.on { background: var(--y); color: var(--k); border-color: var(--y); }
   button:focus-visible, select:focus-visible { outline: 2px dashed var(--y); outline-offset: 2px; }
   .sep { width: 2px; height: 22px; background: var(--m); }
-  .ov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-  .ov .win { pointer-events: auto; max-width: 92%; max-height: 92%; }
+  .ov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 5; }
+  .ov.has { pointer-events: auto; background: rgba(11,11,20,.45); }
+  .ov .win { pointer-events: auto; max-width: 94%; max-height: 94%; position: relative; z-index: 6; }
   .ov .wb { min-width: 320px; }
   .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
   .row label { min-width: 110px; color: var(--l); }
@@ -1931,7 +1932,7 @@ if (typeof document !== 'undefined') (function () {
     $log.textContent = ''; $stats.innerHTML = '<span class="muted">No match running. Open Tactics to shape your side.</span>';
     const o = ui.opts;
     ensureDraftTactics(0); ensureDraftTactics(1);
-    $ov.innerHTML = `<section class="win" aria-label="Match setup"><div class="wt">Match setup</div><div class="wb">
+    setOverlay(`<section class="win" aria-label="Match setup"><div class="wt">Match setup</div><div class="wb">
       <div class="row"><label for="sH">Home</label><select id="sH">${PRESETS.map(p => opt(p.id, o.home, `${p.name} - ${p.personality}`)).join('')}</select></div>
       <div class="row"><label for="sA">Away</label><select id="sA">${PRESETS.map(p => opt(p.id, o.away, `${p.name} - ${p.personality}`)).join('')}</select></div>
       <div class="row"><label for="sS">Team size</label><select id="sS">${[5, 7, 11].map(n => opt(n, o.size, n + ' V ' + n)).join('')}</select>
@@ -1939,12 +1940,12 @@ if (typeof document !== 'undefined') (function () {
       <div class="row"><label for="sL">Match length</label><select id="sL">${[5, 6, 7, 8, 10].map(n => opt(n, o.realMin, n + ' real min')).join('')}</select></div>
       <div class="row muted" id="styleInfo"></div>
       <div class="row">
-        <button data-a="tactics" data-team="0" class="on">Home tactics</button>
-        <button data-a="tactics" data-team="1">Away tactics</button>
-        <button data-a="start" class="on">Kick off</button>
-        <button data-a="qsim">Quick sim 100</button>
+        <button type="button" data-a="tactics" data-team="0" class="on">Home tactics</button>
+        <button type="button" data-a="tactics" data-team="1">Away tactics</button>
+        <button type="button" data-a="start" class="on">Kick off</button>
+        <button type="button" data-a="qsim">Quick sim 100</button>
       </div>
-    </div></section>`;
+    </div></section>`);
     const info = () => {
       readOpts();
       const h = presetById(ui.opts.home), a = presetById(ui.opts.away);
@@ -2069,27 +2070,27 @@ if (typeof document !== 'undefined') (function () {
         ${chk('piCM', 'crossMore', 'Cross more often')}`;
     }
 
-    $ov.innerHTML = `<section class="win" id="tacWin" aria-label="Tactics board"><div class="wt">${pr.name} — tactics board</div>
+    setOverlay(`<section class="win" id="tacWin" aria-label="Tactics board"><div class="wt">${pr.name} — tactics board</div>
       <div class="wb">
         <div class="tabs">
-          <button data-a="tac-tab" data-tab="shape" class="${tab === 'shape' ? 'on' : ''}">Shape / roles</button>
-          <button data-a="tac-tab" data-tab="in" class="${tab === 'in' ? 'on' : ''}">In possession</button>
-          <button data-a="tac-tab" data-tab="trans" class="${tab === 'trans' ? 'on' : ''}">Transitions</button>
-          <button data-a="tac-tab" data-tab="out" class="${tab === 'out' ? 'on' : ''}">Out of possession</button>
-          <button data-a="tac-tab" data-tab="pi" class="${tab === 'pi' ? 'on' : ''}">Player instr</button>
-          <button data-a="tac-side" data-team="0" class="${team === 0 ? 'on' : ''}">Home</button>
-          <button data-a="tac-side" data-team="1" class="${team === 1 ? 'on' : ''}">Away</button>
+          <button type="button" data-a="tac-tab" data-tab="shape" class="${tab === 'shape' ? 'on' : ''}">Shape / roles</button>
+          <button type="button" data-a="tac-tab" data-tab="in" class="${tab === 'in' ? 'on' : ''}">In possession</button>
+          <button type="button" data-a="tac-tab" data-tab="trans" class="${tab === 'trans' ? 'on' : ''}">Transitions</button>
+          <button type="button" data-a="tac-tab" data-tab="out" class="${tab === 'out' ? 'on' : ''}">Out of possession</button>
+          <button type="button" data-a="tac-tab" data-tab="pi" class="${tab === 'pi' ? 'on' : ''}">Player instr</button>
+          <button type="button" data-a="tac-side" data-team="0" class="${team === 0 ? 'on' : ''}">Home</button>
+          <button type="button" data-a="tac-side" data-team="1" class="${team === 1 ? 'on' : ''}">Away</button>
         </div>
         <div class="tac-grid">
           <div class="pitch-mini" aria-label="Formation diagram">${slotsHtml}</div>
           <div>${panel}</div>
         </div>
         <div class="row" style="margin-top:10px">
-          <button data-a="tac-apply" class="on">Apply</button>
-          <button data-a="tac-reset">Reset club DNA</button>
-          <button data-a="tac-close">Close</button>
+          <button type="button" data-a="tac-apply" class="on">Apply</button>
+          <button type="button" data-a="tac-reset">Reset club DNA</button>
+          <button type="button" data-a="tac-close">Close</button>
         </div>
-      </div></section>`;
+      </div></section>`);
 
     const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', fn); };
     bind('tForm', e => {
@@ -2150,7 +2151,7 @@ if (typeof document !== 'undefined') (function () {
     ui.seed++;
     ensureDraftTactics(0); ensureDraftTactics(1);
     ui.M = createMatch({ ...ui.opts, seed: ui.seed, homeTactics: ui.opts.homeTactics, awayTactics: ui.opts.awayTactics });
-    ui.paused = false; ui.acc = 0; ui.banner = null; $ov.innerHTML = ''; $log.textContent = '';
+    ui.paused = false; ui.acc = 0; ui.banner = null; setOverlay(''); $log.textContent = '';
     setPauseLabel();
   }
   function setPauseLabel() { document.getElementById('bPause').textContent = ui.paused ? 'Resume' : 'Pause'; document.getElementById('bPause').classList.toggle('on', ui.paused); }
@@ -2169,17 +2170,17 @@ if (typeof document !== 'undefined') (function () {
       const R = ROLES[p.roleId] || { short: '?' };
       return `<tr><td class="l">#${p.num}</td><td>${p.name}${p.active ? '' : ' (RC)'}</td><td class="muted">${R.short} ${(p.duty || '').slice(0, 3)}</td><td>${p.st.goals ? p.st.goals + 'G ' : ''}${p.st.assists ? p.st.assists + 'A' : ''}</td><td>${(p.st.dist * M.gsp / DT / 1000 * 0.8).toFixed(1)}KM</td><td class="hi">${rating(p).toFixed(1)}</td></tr>`;
     }).join('');
-    $ov.innerHTML = `<section class="win" aria-label="Post-match report"><div class="wt">Full time: ${M.teams[0].short} ${M.teams[0].stats.goals}-${M.teams[1].stats.goals} ${M.teams[1].short}</div>
+    setOverlay(`<section class="win" aria-label="Post-match report"><div class="wt">Full time: ${M.teams[0].short} ${M.teams[0].stats.goals}-${M.teams[1].stats.goals} ${M.teams[1].short}</div>
       <div class="wb" style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="min-width:220px">${statsTable(M)}</div>
         <div><div class="hi">${M.teams[0].name}</div><table>${pl(M.teams[0])}</table><div class="hi" style="margin-top:6px">${M.teams[1].name}</div><table>${pl(M.teams[1])}</table></div>
-      </div><div class="wb row"><button data-a="start" class="on">Rematch</button><button data-a="menu">Menu</button></div></section>`;
+      </div><div class="wb row"><button type="button" data-a="start" class="on">Rematch</button><button type="button" data-a="menu">Menu</button></div></section>`);
   }
   function quickSim() {
     readOpts();
     const o = ui.opts, N = 100, res = [];
-    $ov.innerHTML = `<section class="win"><div class="wt">Quick sim 100</div><div class="wb">Simulating ${o.home} v ${o.away} (${o.size}v${o.size}), sides alternate...
-      <div class="bar"><div id="qsBar"></div></div><div id="qsOut"></div></div></section>`;
+    setOverlay(`<section class="win"><div class="wt">Quick sim 100</div><div class="wb">Simulating ${o.home} v ${o.away} (${o.size}v${o.size}), sides alternate...
+      <div class="bar"><div id="qsBar"></div></div><div id="qsOut"></div></div></section>`);
     let i = 0;
     const step = () => {
       const t0 = performance.now();
@@ -2207,30 +2208,37 @@ if (typeof document !== 'undefined') (function () {
     setTimeout(step, 30);
   }
 
-  document.addEventListener('click', e => {
-    const btn = e.target.closest('[data-a]'); if (!btn) return;
-    const a = btn.dataset.a;
-    if (!a) return;
-    SFX.init();
+  function setOverlay(html) {
+    $ov.innerHTML = html || '';
+    $ov.classList.toggle('has', !!html);
+  }
+  function uiAction(a, el) {
+    try { SFX.init(); } catch (_) {}
     if (a === 'start') { readOpts(); startMatch(); }
     else if (a === 'qsim') quickSim();
     else if (a === 'menu') { SFX.ambient(false); showTitle(); }
     else if (a === 'restart') { if (ui.M) startMatch(); }
     else if (a === 'pause') { ui.paused = !ui.paused; setPauseLabel(); }
-    else if (a === 'sp') { ui.speed = +btn.dataset.v; document.querySelectorAll('button[data-a="sp"]').forEach(b => b.classList.toggle('on', b === btn)); }
-    else if (a === 'mute') { SFX.muted = !SFX.muted; btn.textContent = SFX.muted ? 'SFX off' : 'SFX on'; SFX.ambient(!!ui.M && !SFX.muted); }
-    else if (a === 'dbg') { const k = btn.dataset.v; ui.debug[k] = !ui.debug[k]; btn.classList.toggle('on', ui.debug[k]); document.getElementById('decWin').hidden = !ui.debug.dec; }
-    else if (a === 'tactics') showTacticsBoard(btn.dataset.team != null ? +btn.dataset.team : (ui.M ? 0 : 0));
-    else if (a === 'tac-tab') { ui.tac.tab = btn.dataset.tab; renderTacticsBoard(); }
-    else if (a === 'tac-side') { applyTacticsDraft(); showTacticsBoard(+btn.dataset.team); }
-    else if (a === 'tac-sel') { ui.tac.sel = +btn.dataset.i; renderTacticsBoard(); }
-    else if (a === 'tac-apply') { applyTacticsDraft(); if (ui.M) { $ov.innerHTML = ''; ui.paused = false; setPauseLabel(); } else showTitle(); }
+    else if (a === 'sp') { ui.speed = +el.dataset.v; document.querySelectorAll('button[data-a="sp"]').forEach(b => b.classList.toggle('on', b === el)); }
+    else if (a === 'mute') { SFX.muted = !SFX.muted; el.textContent = SFX.muted ? 'SFX off' : 'SFX on'; SFX.ambient(!!ui.M && !SFX.muted); }
+    else if (a === 'dbg') { const k = el.dataset.v; ui.debug[k] = !ui.debug[k]; el.classList.toggle('on', ui.debug[k]); document.getElementById('decWin').hidden = !ui.debug.dec; }
+    else if (a === 'tactics') showTacticsBoard(el.dataset.team != null ? +el.dataset.team : 0);
+    else if (a === 'tac-tab') { ui.tac.tab = el.dataset.tab; renderTacticsBoard(); }
+    else if (a === 'tac-side') { applyTacticsDraft(); showTacticsBoard(+el.dataset.team); }
+    else if (a === 'tac-sel') { ui.tac.sel = +el.dataset.i; renderTacticsBoard(); }
+    else if (a === 'tac-apply') { applyTacticsDraft(); if (ui.M) { setOverlay(''); ui.paused = false; setPauseLabel(); } else showTitle(); }
     else if (a === 'tac-reset') {
       const pr = ui.M ? ui.M.teams[ui.tac.team].preset : presetById(ui.tac.team === 0 ? ui.opts.home : ui.opts.away);
       const size = ui.M ? ui.M.size : ui.opts.size;
       ui.tac.draft = tacticsForPreset(pr, size, null); ui.tac.sel = 0; renderTacticsBoard();
     }
-    else if (a === 'tac-close') { if (ui.M) { $ov.innerHTML = ''; } else showTitle(); }
+    else if (a === 'tac-close') { if (ui.M) setOverlay(''); else showTitle(); }
+  }
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-a]'); if (!el) return;
+    const a = el.dataset.a; if (!a) return;
+    e.preventDefault();
+    uiAction(a, el);
   });
   document.addEventListener('keydown', e => { if (e.code === 'Space' && ui.M && e.target === document.body) { e.preventDefault(); ui.paused = !ui.paused; setPauseLabel(); } });
 
