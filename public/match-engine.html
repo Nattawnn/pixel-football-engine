@@ -96,7 +96,8 @@ const CFG = {
   THINK_MIN: 0.3, THINK_MAX: 0.6,          // re-evaluation interval (s), faster with Decisions+Anticipation
   TEMP_BASE: 0.0035,                       // softmax temperature base (lower = more 'perfect' choices)
   VISION_R_BASE: 26, VISION_R_PER: 2.2,    // perception radius = base + vision*k (m)
-  SHOT_MAX_DIST: 32, SHOT_BIAS: 1.5, LOSS_K: 1.0,
+  SHOT_MAX_DIST: 32, SHOT_BIAS: 2.6, LOSS_K: 1.0,
+  PATIENCE_S: 14, PATIENCE_W: 0.02,        // possession age (s) at full urgency; utility shift toward forward passes
   // ---- Off-ball weights ----
   W_ANCHOR: 0.0015, W_LANE: 0.06, W_SPACE: 0.05, W_VALUE: 0.6, W_CROWD: 0.05,
   MARK_BLEND: 0.35,                        // 0 = pure zonal, 1 = pure man-orientation
@@ -385,6 +386,11 @@ function evalPass(M, p, q, tx, ty, kind, pres) {
   let bonus = prog > 0 ? st.directness * 0.007 * Math.min(1, prog / 25) + st.tempo * 0.004 * Math.min(1, prog / 20)
                        : -st.directness * 0.005 * Math.min(1, -prog / 15);
   if (kind !== 'ground') bonus += (st.directness - 0.5) * 0.006;
+  // team patience: the longer a possession lasts, the more recycling (non-progressive) passes are penalised
+  // and progressive ones rewarded -> sterile circulation eventually forces a risk (scaled by tempo)
+  const possAge = Math.max(0, (M.tick - (T.winTick || 0)) * DT);
+  const urge = Math.min(1, possAge / CFG.PATIENCE_S) * (0.5 + st.tempo) * CFG.PATIENCE_W;
+  bonus += prog > 3 ? urge * Math.min(1, prog / 15) : -urge * 0.6;
   return { type: 'pass', kind, recv: q, tx, ty, p: ps, value, lossCost, bonus };
 }
 function evalShot(M, p, pres, mult) {
@@ -409,6 +415,37 @@ function evalShot(M, p, pres, mult) {
   // aim at the corner further from the keeper
   const aimY = gk && gk.y > 34 ? 34 - CFG.GOAL_HALF + 0.5 : 34 + CFG.GOAL_HALF - 0.5;
   return { type: 'shot', p: ps, xg: xgStat, value: CFG.SHOT_BIAS, lossCost: 0.012, bonus: 0, aimY, tx: gx, ty: aimY };
+}
+// Cross from a wide final-third position into a danger zone (near post / penalty spot / far post).
+// p = delivery accuracy x P(our runner arrives before their nearest defender/keeper)
+// value = expected header/volley xG at the target spot + residual EPV of the second ball
+function evalCross(M, p, pres) {
+  const T = M.teams[p.team], O = opp(M, p), ax = toA(T, p.x), side = Math.sign(p.y - 34) || 1;
+  if (ax < 70 || Math.abs(p.y - 34) < 9) return null;
+  const line = M.offside ? offsideLineA(M, T) : 105;
+  let best = null;
+  for (const [sax, sy] of [[99.5, 34 + side * 2], [94, 34], [99, 34 - side * 3.5]]) {
+    const tx = fromA(T, sax), d = hyp(tx - p.x, sy - p.y), flight = 0.5 + d / 17;
+    let ta = 9, recv = null, tdf = 9, hd = 10;
+    for (const q of T.players) {
+      if (q === p || !q.active || q.isGK || toA(T, q.x) > line + 0.3) continue;
+      const t = timeTo(q, tx, sy, 1.0); if (t < ta) { ta = t; recv = q; }
+    }
+    for (const o of O.players) {
+      if (!o.active) continue;
+      const t = timeTo(o, tx, sy, 1.0) + (o.isGK ? (sax > 98 ? -0.2 : 0.5) : 0);
+      if (t < tdf) { tdf = t; hd = o.isGK ? 14 : o.a.heading; }
+    }
+    if (!recv || ta > flight + 1.2) continue;
+    const pWin = 1 / (1 + Math.exp(-((tdf - ta) * 1.6 + (recv.a.heading - hd) * 0.06)));
+    const pAcc = clamp(0.5 + 0.022 * p.a.passing - pres * 0.2, 0.3, 0.95);
+    const ps = pAcc * pWin;
+    const value = xgBase(sax, sy) * 0.6 * (0.6 + recv.a.heading / 25) + epvA(sax, sy) * 0.25;
+    const o = { type: 'pass', kind: 'lofted', cross: true, recv, tx, ty: sy, p: ps, value, lossCost: epvA(105 - sax, sy) * 0.5,
+                bonus: 0.004 + (T.style.width || 0.5) * 0.004 };
+    if (!best || o.p * o.value > best.p * best.value) best = o;
+  }
+  return best;
 }
 function evalDribble(M, p, ang, pres) {
   const T = M.teams[p.team], O = opp(M, p), L = 6;
@@ -455,6 +492,7 @@ function decideOnBall(M, p, rt) {
     }
   }
   if (!rt && !p.holding && !p.isGK) for (let k = 0; k < 8; k++) opts.push(evalDribble(M, p, k * Math.PI / 4, pres));
+  if ((!rt || rt === 'freekick') && !p.isGK) { const c = evalCross(M, p, pres); if (c) opts.push(c); }
   if (!passOnly && !p.holding) { const s = evalShot(M, p, pres, rt === 'freekick' ? 0.6 : 1); if (s) opts.push(s); }
   if (!rt && !p.holding) {
     const ph = clamp(1 - pres * 0.45 * (1.2 - p.a.strength / 20), 0.2, 1);
